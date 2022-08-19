@@ -4,12 +4,21 @@ Caching proxy for crates.io
 
 ### Running locally
 
+```bash
 poetry run hypercorn cratere:app --bind 0.0.0.0 --reload --access-logfile -
+```
 
+### Type checking
+
+```bash
+poetry run mypy cratere
+```
 
 ### Code formatting
 
+```bash
 poetry run black cratere
+```
 
 
 ### Configuring cargo to use cratere as a repository
