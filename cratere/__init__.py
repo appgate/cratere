@@ -108,9 +108,24 @@ async def write_crates_config() -> None:
     crates_config_model = CratesConfigModel(
         dl="http://172.17.0.1:8000/api/v1/crates", api="http://172.17.0.1:8000"
     )
+    if crates_config_model == read_crates_config():
+        return
+
     print("Writing crates config", crates_config_model)
-    await (index_path / "config.json").write_text(
-        json.dumps(crates_config_model.dict(), indent=4)
+    config_path = index_path / "config.json"
+    await config_path.write_text(json.dumps(crates_config_model.dict(), indent=4))
+    await anyio.run_process(
+        [
+            "git",
+            "--git-dir",
+            str(index_path / ".git"),
+            "--work-tree",
+            str(index_path),
+            "commit",
+            "-m",
+            "update config.json for cratere",
+            config_path.name,
+        ]
     )
 
 
