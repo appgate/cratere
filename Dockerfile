@@ -7,13 +7,13 @@ WORKDIR /install
 
 COPY requirements.txt /requirements.txt
 
+RUN apt-get update && apt-get install git --yes
 RUN pip install --target /install -r /requirements.txt
 
 FROM base
 
 WORKDIR /app
 COPY --from=builder /install /modules
-COPY purple_crl_updater.py /app/purple_crl_updater.py
-COPY known_hosts /app/known_hosts
+COPY cratere /app/cratere
 
-CMD PYTHONPATH=/modules hypercorn cratere:app --bind 0.0.0.0 --access-logfile -
+CMD PYTHONPATH=/modules python3 -m hypercorn cratere:app --bind 0.0.0.0 --access-logfile -
