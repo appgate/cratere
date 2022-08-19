@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     scheme: Literal["http", "https"] = "http"
     host: str = "172.17.0.1"
     port: int = 8000
+    index: Path = Path("crates.io-index-master")
+    cache: Path = Path("storage")
 
     class Config:
         env_prefix = "cratere_"
@@ -64,9 +66,8 @@ class PackageMetadataModel(BaseModel):
     features2: dict[str, list[str]] = Field(default_factory=dict)
 
 
-async def download_crates_index():
+async def download_crates_index(index_path: Path) -> None:
     """The crates index is just a git repo, clone it!"""
-    index_path = Path("crates.io-index-master")
     if index_path.exists():
         log.info("Index already downloaded")
         return
@@ -87,8 +88,7 @@ async def download_crates_index():
 
 def read_crates_config() -> CratesConfigModel:
     """See https://doc.rust-lang.org/cargo/reference/registries.html#index-format"""
-    index_path = Path("crates.io-index-master")
-    config_path = index_path / "config.json"
+    config_path = settings.index / "config.json"
     with config_path.open("rb") as f:
         config = json.load(f)
     config_model = CratesConfigModel(**config)
@@ -104,7 +104,7 @@ def read_package_metadata(name: str) -> list[PackageMetadataModel]:
     - All other packages are stored in directories named {first-two}/{second-two} where the top directory is the first two characters of the package name, and the next subdirectory is the third and fourth characters of the package name. For example, cargo would be stored in a file named ca/rg/cargo.
     """
     assert len(name) > 0
-    index_path = Path("crates.io-index-master")
+    index_path = settings.index
     if len(name) <= 3:
         metadata_path = index_path / str(len(name)) / name
     else:
@@ -119,7 +119,7 @@ def read_package_metadata(name: str) -> list[PackageMetadataModel]:
 
 async def write_crates_config() -> None:
     """Override the default crates.io config to point to this proxy instead"""
-    index_path = anyio.Path("crates.io-index-master")
+    index_path = anyio.Path(settings.index)
     crates_config_model = CratesConfigModel(
         dl=f"{settings.scheme}://{settings.host}:{settings.port}/api/v1/crates",
         api=f"{settings.scheme}://{settings.host}:{settings.port}",
@@ -153,7 +153,7 @@ async def write_crates_config() -> None:
 
 @app.on_event("startup")
 async def run():
-    await download_crates_index()
+    await download_crates_index(settings.index)
     await write_crates_config()
     crates_config = read_crates_config()
     log.info("Started with crates config %s", crates_config)
@@ -164,7 +164,7 @@ async def get_index_refs(request: Request):
     """See https://git-scm.com/docs/http-protocol"""
 
     async def stream_pack_local_index():
-        index_path = Path("crates.io-index-master")
+        index_path = settings.index
         cmd = ["git", "upload-pack", "--http-backend-info-refs", str(index_path)]
         completed_process = await anyio.run_process(cmd, check=True)
         # Header for git http protocol
@@ -184,7 +184,7 @@ async def post_index_upload_pack(request: Request):
     body = await request.body()
 
     async def stream_pack_local_index():
-        index_path = Path("crates.io-index-master")
+        index_path = settings.index
         async with await anyio.open_process(
             ["git", "upload-pack", str(index_path)], stdin=subprocess.PIPE
         ) as process:
@@ -203,7 +203,7 @@ async def get_crate(name: str, version: str, request: Request):
     """Serve crate download."""
     body = await request.body()
 
-    storage = anyio.Path("storage")
+    storage = anyio.Path(settings.cache)
     await storage.mkdir(exist_ok=True)
 
     cached_file_path = storage / name / version
