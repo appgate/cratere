@@ -143,12 +143,12 @@ async def get_index_refs(request: Request):
 
     async def stream_pack_local_index():
         index_path = Path("crates.io-index-master")
-        async with await anyio.open_process(
-            ["git", "upload-pack", "--http-backend-info-refs", str(index_path)]
-        ) as process:
-            yield b"001e# service=git-upload-pack\n0000"
-            async for chunk in BufferedByteReceiveStream(process.stdout):
-                yield chunk
+        cmd = ["git", "upload-pack", "--http-backend-info-refs", str(index_path)]
+        completed_process = await anyio.run_process(cmd, check=True)
+        # Header for git http protocol
+        yield b"001e# service=git-upload-pack\n0000"
+        # Content coming from upload-pack
+        yield completed_process.stdout
 
     return StreamingResponse(
         stream_pack_local_index(),
