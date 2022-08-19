@@ -1,4 +1,5 @@
 import json
+import datetime
 import fcntl
 import logging
 import subprocess
@@ -86,9 +87,31 @@ async def download_crates_index(index_path: Path) -> None:
     log.info("Downloaded crates.io index to %s", index_path)
 
 
-def read_crates_config() -> CratesConfigModel:
+async def update_crates_index(index_path: Path) -> None:
+    # Resolve symlink to current index
+    if index_path.exists():
+        assert index_path.is_symlink(), "index path should be a symlink"
+
+    # Use suffix based on current datetime with iso accuracy, e.g. 2022-08-19T13:40:33
+    suffix = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()[:-13]
+    new_index = index_path.parent / f"{index_path.name}.{suffix}"
+
+    # Download new index
+    await download_crates_index(new_index)
+    await write_crates_config(anyio.Path(new_index))
+
+    # Atomically replace symlink to point to new index
+    new_index_link = new_index.parent / f"{new_index}.name.lnk"
+    cmd = ["ln", "-s", str(new_index), str(new_index_link)]
+    await anyio.run_process(cmd, check=True)
+    cmd = ["mv", "-T", str(new_index_link), str(index_path)]
+    await anyio.run_process(cmd, check=True)
+    log.info("Index %s updated to %s", index_path, new_index)
+
+
+def read_crates_config(index_path: Path) -> CratesConfigModel:
     """See https://doc.rust-lang.org/cargo/reference/registries.html#index-format"""
-    config_path = settings.index / "config.json"
+    config_path = index_path / "config.json"
     with config_path.open("rb") as f:
         config = json.load(f)
     config_model = CratesConfigModel(**config)
@@ -117,14 +140,13 @@ def read_package_metadata(name: str) -> list[PackageMetadataModel]:
     return metadata
 
 
-async def write_crates_config() -> None:
+async def write_crates_config(index_path: anyio.Path) -> None:
     """Override the default crates.io config to point to this proxy instead"""
-    index_path = anyio.Path(settings.index)
     crates_config_model = CratesConfigModel(
         dl=f"{settings.scheme}://{settings.host}:{settings.port}/api/v1/crates",
         api=f"{settings.scheme}://{settings.host}:{settings.port}",
     )
-    if crates_config_model == read_crates_config():
+    if crates_config_model == read_crates_config(Path(index_path)):
         return
 
     config_path = index_path / "config.json"
@@ -153,9 +175,10 @@ async def write_crates_config() -> None:
 
 @app.on_event("startup")
 async def run():
-    await download_crates_index(settings.index)
-    await write_crates_config()
-    crates_config = read_crates_config()
+    if not settings.index.exists():
+        # Update crates index if it doesn't exist, then update it on a schedule.
+        await update_crates_index(settings.index)
+    crates_config = read_crates_config(settings.index)
     log.info("Started with crates config %s", crates_config)
 
 
