@@ -1,3 +1,4 @@
+import asyncio
 import json
 import datetime
 import fcntl
@@ -186,6 +187,10 @@ async def run():
     crates_config = read_crates_config(settings.index)
     log.info("Started with crates config %s", crates_config)
 
+    log.info(
+        "Will update crates index on the following cron schedule: %s",
+        settings.index_update_schedule,
+    )
     update_crates_index_job = acron.Job(
         name="Update crates index",
         schedule=settings.index_update_schedule,
