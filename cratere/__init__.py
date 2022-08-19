@@ -123,6 +123,8 @@ async def write_crates_config() -> None:
         env={
             "GIT_AUTHOR_NAME": "cratere",
             "GIT_AUTHOR_EMAIL": "cratere@noreply.appgate.com",
+            "GIT_COMMITTER_NAME": "cratere",
+            "GIT_COMMITTER_EMAIL": "cratere@noreply.appgate.com",
         },
     )
 
