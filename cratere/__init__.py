@@ -221,7 +221,7 @@ async def get_crate(name: str, version: str, request: Request):
                 r.raise_for_status()
                 await (storage / name).mkdir(exist_ok=True)
                 part_path = cached_file_path.with_suffix(".part")
-                log.debug("Writing cached crate to %s", cached_file_part)
+                log.debug("Writing cached crate to %s", part_path)
                 async with await anyio.open_file(part_path, "wb") as f:
                     # Lock partial file to avoid concurrency issues
                     await anyio.to_thread.run_sync(fcntl.lockf, f, fcntl.LOCK_EX)
