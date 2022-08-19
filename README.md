@@ -20,4 +20,9 @@ Assuming cratere is listening on 172.17.0.1:8000:
 registry = "http://172.17.0.1:8000/crates.io-index"
 [source.crates-io]
 replace-with = "my-mirror"
-``:
+```
+
+# Docker
+
+poetry export --without-hashes --format=requirements.txt > requirements.txt
+docker build -t cratere .
