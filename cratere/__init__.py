@@ -12,6 +12,16 @@ import httpx
 from pydantic import BaseModel, Field, BaseSettings
 
 
+log = logging.getLogger("purple-crl-updater")
+formatter = logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%dT%H:%M:%S%z"
+)
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(formatter)
+log.addHandler(stream_handler)
+log.setLevel(logging.INFO)
+
+
 class Settings(BaseSettings):
     scheme: Literal["http", "https"] = "http"
     host: str = "172.7.0.1"
@@ -57,10 +67,10 @@ async def download_crates_index():
     """The crates index is just a git repo, clone it!"""
     index_path = Path("crates.io-index-master")
     if index_path.exists():
-        print("Index already downloaded")
+        log.info("Index already downloaded")
         return
 
-    print("Downloading crates.io index using git clone ...")
+    log.info("Downloading crates.io index using git clone ...")
     # cargo doens't like a shallow copy
     await anyio.run_process(
         [
@@ -71,7 +81,7 @@ async def download_crates_index():
             str(index_path),
         ]
     )
-    print("Done")
+    log.info("Downloaded crates.io index to %s", index_path)
 
 
 def read_crates_config() -> CratesConfigModel:
@@ -111,12 +121,12 @@ async def write_crates_config() -> None:
     index_path = anyio.Path("crates.io-index-master")
     crates_config_model = CratesConfigModel(
         dl=f"{settings.scheme}://{settings.host}:{settings.port}/api/v1/crates",
-        api=f"{settings.scheme}://{settings.host}:{settings.port}"
+        api=f"{settings.scheme}://{settings.host}:{settings.port}",
     )
     if crates_config_model == read_crates_config():
         return
 
-    print("Writing crates config", crates_config_model)
+    log.info("Writing crates config %s to %s", crates_config_model, config_path)
     config_path = index_path / "config.json"
     await config_path.write_text(json.dumps(crates_config_model.dict(), indent=4))
     await anyio.run_process(
@@ -145,7 +155,7 @@ async def run():
     await download_crates_index()
     await write_crates_config()
     crates_config = read_crates_config()
-    print("Started with crates config", crates_config)
+    log.info("Started with crates config %s", crates_config)
 
 
 @app.get("/crates.io-index/info/refs")
@@ -197,7 +207,7 @@ async def get_crate(name: str, version: str, request: Request):
 
     cached_file_path = storage / name / version
     if await cached_file_path.exists():
-        print(f"Serving {cached_file_path} from cache!")
+        log.info("Serving %s/%s from cached file %s", name, version, cached_file_path)
         return FileResponse(cached_file_path)
 
     async def stream_remote_download():
@@ -210,6 +220,7 @@ async def get_crate(name: str, version: str, request: Request):
                 r.raise_for_status()
                 await (storage / name).mkdir(exist_ok=True)
                 part_path = cached_file_path.with_suffix(".part")
+                log.debug("Writing cached crate to %s", cached_file_part)
                 async with await anyio.open_file(part_path, "wb") as f:
                     # Lock partial file to avoid concurrency issues
                     await anyio.to_thread.run_sync(fcntl.lockf, f, fcntl.LOCK_EX)
@@ -217,6 +228,9 @@ async def get_crate(name: str, version: str, request: Request):
                         yield chunk
                         # Write to cache too!
                         await f.write(chunk)
+                log.debug(
+                    "Moving cached crate from %s to %s", part_path, cached_file_path
+                )
                 await part_path.rename(cached_file_path)
 
     return StreamingResponse(stream_remote_download())
