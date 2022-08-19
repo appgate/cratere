@@ -7,7 +7,7 @@ import zipfile
 import anyio
 from anyio.streams.buffered import BufferedByteReceiveStream
 from fastapi import FastAPI, Request, HTTPException, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 import httpx
 from pydantic import BaseModel, Field
 
@@ -172,12 +172,37 @@ async def post_index_upload_pack(request: Request):
     return StreamingResponse(stream_pack_local_index(), headers={"content-type": "application/x-git-upload-pack-result"})
 
 
-@app.get("/api/v1/crates")
-def get_crate(request: Request):
+@app.get("/api/v1/crates/{name}/{version}/download")
+async def get_crate(name: str, version: str, request: Request):
     """Serve crate download.
     """
-    print(request)
-    raise HTTPException(status_code=400, detail="I don't understand!!!")
+    body = await request.body()
+
+    storage = Path("storage")
+    if not storage.exists():
+        storage.mkdir()
+
+    cached_file_path = storage / name / version
+    if cached_file_path.exists():
+        print(f"Serving {cached_file_path} from cache!")
+        return FileResponse(cached_file_path)
+
+    async def stream_remote_download():
+        async with httpx.AsyncClient() as client:
+            r = await client.get(f"https://crates.io{request.url.path}")
+            assert r.status_code == 302
+            location = r.headers["location"]
+            async with client.stream("GET", location) as r:
+                r.raise_for_status()
+                # TODO: Locking!
+                (storage / name).mkdir(exist_ok=True)
+                async with await anyio.open_file(cached_file_path, "wb") as f:
+                    async for chunk in r.aiter_bytes():
+                        yield chunk
+                        # Write to cache too!
+                        await f.write(chunk)
+
+    return StreamingResponse(stream_remote_download())
 
 
 def main():
