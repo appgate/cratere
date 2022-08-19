@@ -1,6 +1,7 @@
 # Cratere
 
-Caching proxy for crates.io
+Caching proxy for crates.io.
+Based on https://doc.rust-lang.org/cargo/reference/registries.html#index-format
 
 ### Running locally
 
