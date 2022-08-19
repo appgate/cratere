@@ -127,8 +127,8 @@ async def write_crates_config() -> None:
     if crates_config_model == read_crates_config():
         return
 
-    log.info("Writing crates config %s to %s", crates_config_model, config_path)
     config_path = index_path / "config.json"
+    log.info("Writing crates config %s to %s", crates_config_model, config_path)
     await config_path.write_text(json.dumps(crates_config_model.dict(), indent=4))
     await anyio.run_process(
         [
