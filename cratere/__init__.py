@@ -3,7 +3,6 @@ import fcntl
 import subprocess
 from typing import Final
 from pathlib import Path
-import zipfile
 
 import anyio
 from anyio.streams.buffered import BufferedByteReceiveStream
@@ -49,54 +48,25 @@ class PackageMetadataModel(BaseModel):
     features2: dict[str, list[str]] = Field(default_factory=dict)
 
 
-async def download_index():
-    """In theory the index is a git repo, we just use the fact that git can provide
-    the current view of a git repo as a zip instead to simplify things.
-    """
+async def download_crates_index():
+    """The crates index is just a git repo, clone it!"""
     index_path = Path("crates.io-index-master")
     if index_path.exists():
         print("Index already downloaded")
         return
 
-    async with httpx.AsyncClient() as client:
-        print(f"Downloading crates.io index from {CRATES_IO_INDEX_URL} ...")
-
-        # Get redirect URL
-        r = await client.get(CRATES_IO_INDEX_URL)
-        assert r.status_code == 302
-        location = r.headers["location"]
-        print(f"Redirected to location {location}")
-
-        # Download index zip
-        async with client.stream("GET", location) as r:
-            r.raise_for_status()
-
-            # 'content-disposition': 'attachment; filename=crates.io-index-master.zip'
-            content_disposition = r.headers["content-disposition"]
-            filename = content_disposition.removeprefix("attachment; filename=")
-            zip_path = Path(Path(filename).name)
-            assert zip_path.suffix == ".zip"
-
-            match r.headers:
-                case {"content-length": content_length}:
-                    print(
-                        f"Downloading {int(content_length) // 1024**2} MiB to {zip_path} ..."
-                    )
-                case _:
-                    print(f"Downloading to {zip_path} ...")
-
-            with zip_path.open("wb") as f:
-                async for chunk in r.aiter_bytes():
-                    f.write(chunk)
-
-        # Extract index zip
-        dir_path = Path("index")
-        print(f"Extracting {zip_path} to {dir_path} ...")
-        with zipfile.ZipFile(zip_path, "r") as zip_ref:
-            zip_ref.extractall(dir_path)
-        (dir_path / index_path.name).rename(index_path)
-        dir_path.rmdir()
-        print(f"Done ... index now available at {index_path}")
+    print("Downloading crates.io index using git clone ...")
+    # cargo doens't like a shallow copy
+    await anyio.run_process(
+        [
+            "git",
+            "clone",
+            "https://github.com/rust-lang/crates.io-index.git",
+            "--single-branch",
+            str(index_path),
+        ]
+    )
+    print("Done")
 
 
 def read_crates_config() -> CratesConfigModel:
@@ -131,19 +101,31 @@ def read_package_metadata(name: str) -> list[PackageMetadataModel]:
     return metadata
 
 
+async def write_crates_config() -> None:
+    """Override the default crates.io config to point to this proxy instead"""
+    index_path = anyio.Path("crates.io-index-master")
+    # TODO: Read these from env variables
+    crates_config_model = CratesConfigModel(
+        dl="http://172.17.0.1:8000/api/v1/crates", api="http://172.17.0.1:8000"
+    )
+    print("Writing crates config", crates_config_model)
+    await (index_path / "config.json").write_text(
+        json.dumps(crates_config_model.dict(), indent=4)
+    )
+
+
 @app.on_event("startup")
 async def run():
-    await download_index()
-    regex_metadata = read_package_metadata("regex")
-    uuid_metadata = read_package_metadata("uuid")
-
+    await download_crates_index()
+    await write_crates_config()
     crates_config = read_crates_config()
-    print("CRATES CONFIG IS", crates_config)
+    print("Started with crates config", crates_config)
 
 
 @app.get("/crates.io-index/info/refs")
 async def get_index_refs(request: Request):
     """See https://git-scm.com/docs/http-protocol"""
+
     async def stream_pack_local_index():
         index_path = Path("crates.io-index-master")
         async with await anyio.open_process(
