@@ -30,7 +30,7 @@ replace-with = "my-mirror"
 
 Export poetry lock file to standard requirements file and run docker build:
 ```bash
-poetry export --without-hashes --format=requirements.txt > requirements.txt
+poetry export --format=requirements.txt > requirements.txt
 docker build -t cratere .
 ```
 
