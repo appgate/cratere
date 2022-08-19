@@ -1,7 +1,6 @@
 import json
 import fcntl
 import subprocess
-from typing import Final
 from pathlib import Path
 
 import anyio
@@ -13,11 +12,6 @@ from pydantic import BaseModel, Field
 
 
 app = FastAPI()
-
-
-CRATES_IO_INDEX_URL: Final = (
-    "https://github.com/rust-lang/crates.io-index/archive/refs/heads/master.zip"
-)
 
 
 class CratesConfigModel(BaseModel):
@@ -125,7 +119,11 @@ async def write_crates_config() -> None:
             "-m",
             "update config.json for cratere",
             config_path.name,
-        ]
+        ],
+        env={
+            "GIT_AUTHOR_NAME": "cratere",
+            "GIT_AUTHOR_EMAIL": "cratere@noreply.appgate.com",
+        },
     )
 
 
