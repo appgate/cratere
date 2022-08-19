@@ -1,5 +1,6 @@
 import json
 import fcntl
+import logging
 import subprocess
 from typing import Literal
 from pathlib import Path
