@@ -1,6 +1,7 @@
 import json
 import fcntl
 import subprocess
+from typing import Literal
 from pathlib import Path
 
 import anyio
@@ -8,9 +9,19 @@ from anyio.streams.buffered import BufferedByteReceiveStream
 from fastapi import FastAPI, Request, HTTPException, Response
 from fastapi.responses import StreamingResponse, FileResponse
 import httpx
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, BaseSettings
 
 
+class Settings(BaseSettings):
+    scheme: Literal["http", "https"] = "http"
+    host: str = "172.7.0.1"
+    port: int = 8000
+
+    class Config:
+        env_prefix = "cratere_"
+
+
+settings = Settings()
 app = FastAPI()
 
 
@@ -98,9 +109,9 @@ def read_package_metadata(name: str) -> list[PackageMetadataModel]:
 async def write_crates_config() -> None:
     """Override the default crates.io config to point to this proxy instead"""
     index_path = anyio.Path("crates.io-index-master")
-    # TODO: Read these from env variables
     crates_config_model = CratesConfigModel(
-        dl="http://172.17.0.1:8000/api/v1/crates", api="http://172.17.0.1:8000"
+        dl=f"{settings.scheme}://{settings.host}:{settings.port}/api/v1/crates",
+        api=f"{settings.scheme}://{settings.host}:{settings.port}"
     )
     if crates_config_model == read_crates_config():
         return
