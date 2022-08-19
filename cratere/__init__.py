@@ -139,18 +139,11 @@ async def run():
 
     crates_config = read_crates_config()
     print("CRATES CONFIG IS", crates_config)
-    for m in regex_metadata:
-        print(m)
 
 
 @app.get("/crates.io-index/info/refs")
 async def get_index_refs(request: Request):
     """See https://git-scm.com/docs/http-protocol"""
-    # async with httpx.AsyncClient() as client:
-    #    r = await client.get(f"https://github.com/rust-lang{request.url.path}", params=request.query_params)
-    #    print("HEADERS", r.headers)
-    #    print("CONTENT", r.content)
-    # raise HTTPException(status_code=400, detail="I don't understand!!!")
     async def stream_pack_local_index():
         index_path = Path("crates.io-index-master")
         async with await anyio.open_process(
@@ -203,6 +196,7 @@ async def get_crate(name: str, version: str, request: Request):
         async with httpx.AsyncClient() as client:
             r = await client.get(f"https://crates.io{request.url.path}")
             assert r.status_code == 302
+
             location = r.headers["location"]
             async with client.stream("GET", location) as r:
                 r.raise_for_status()

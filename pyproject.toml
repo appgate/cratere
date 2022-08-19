@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "crataceous"
+name = "cratere"
 version = "0.1.0"
 description = "Caching proxy for crates.io"
 authors = ["Thomas Cellerier <thomas.cellerier@appgate.com>"]
