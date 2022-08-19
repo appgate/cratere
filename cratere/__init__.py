@@ -6,6 +6,7 @@ import subprocess
 from typing import Literal
 from pathlib import Path
 
+import acron
 import anyio
 from anyio.streams.buffered import BufferedByteReceiveStream
 from fastapi import FastAPI, Request, HTTPException, Response
@@ -30,6 +31,9 @@ class Settings(BaseSettings):
     port: int = 8000
     index: Path = Path("crates.io-index-master")
     cache: Path = Path("storage")
+    # Schedule for crates index update https://crontab.guru/#*_04_*_*_*
+    # Default: At every minute past hour 4.
+    index_update_schedule: str = "* 04 * * *"
 
     class Config:
         env_prefix = "cratere_"
@@ -178,8 +182,17 @@ async def run():
     if not settings.index.exists():
         # Update crates index if it doesn't exist, then update it on a schedule.
         await update_crates_index(settings.index)
+
     crates_config = read_crates_config(settings.index)
     log.info("Started with crates config %s", crates_config)
+
+    update_crates_index_job = acron.Job(
+        name="Update crates index",
+        schedule=settings.index_update_schedule,
+        func=update_crates_index,
+        data=settings.index,
+    )
+    asyncio.create_task(acron.run({update_crates_index_job}))
 
 
 @app.get("/crates.io-index/info/refs")
