@@ -1,11 +1,19 @@
-import anyio
 import json
+import subprocess
 from typing import Final
 from pathlib import Path
 import zipfile
 
+import anyio
+from anyio.streams.buffered import BufferedByteReceiveStream
+from fastapi import FastAPI, Request, HTTPException, Response
+from fastapi.responses import StreamingResponse
 import httpx
 from pydantic import BaseModel, Field
+
+
+app = FastAPI()
+
 
 CRATES_IO_INDEX_URL: Final = (
     "https://github.com/rust-lang/crates.io-index/archive/refs/heads/master.zip"
@@ -41,6 +49,9 @@ class PackageMetadataModel(BaseModel):
 
 
 async def download_index():
+    """In theory the index is a git repo, we just use the fact that git can provide
+    the current view of a git repo as a zip instead to simplify things.
+    """
     index_path = Path("crates.io-index-master")
     if index_path.exists():
         print("Index already downloaded")
@@ -119,6 +130,7 @@ def read_package_metadata(name: str) -> list[PackageMetadataModel]:
     return metadata
 
 
+@app.on_event("startup")
 async def run():
     await download_index()
     regex_metadata = read_package_metadata("regex")
@@ -128,6 +140,44 @@ async def run():
     print("CRATES CONFIG IS", crates_config)
     for m in regex_metadata:
         print(m)
+
+
+@app.get("/crates.io-index/info/refs")
+async def get_index_refs(request: Request):
+    """See https://git-scm.com/docs/http-protocol"""
+    #async with httpx.AsyncClient() as client:
+    #    r = await client.get(f"https://github.com/rust-lang{request.url.path}", params=request.query_params)
+    #    print("HEADERS", r.headers)
+    #    print("CONTENT", r.content)
+    #raise HTTPException(status_code=400, detail="I don't understand!!!")
+    async def stream_pack_local_index():
+        index_path = Path("crates.io-index-master")
+        async with await anyio.open_process(["git", "upload-pack", "--http-backend-info-refs", str(index_path)]) as process:
+            yield b"001e# service=git-upload-pack\n0000"
+            async for chunk in BufferedByteReceiveStream(process.stdout):
+                yield chunk
+    return StreamingResponse(stream_pack_local_index(), headers={"content-type": "application/x-git-upload-pack-advertisement"})
+
+
+@app.post("/crates.io-index/git-upload-pack")
+async def post_index_upload_pack(request: Request):
+    """See https://git-scm.com/docs/http-protocol"""
+    body = await request.body()
+    async def stream_pack_local_index():
+        index_path = Path("crates.io-index-master")
+        async with await anyio.open_process(["git", "upload-pack", str(index_path)], stdin=subprocess.PIPE) as process:
+            await process.stdin.send(body)
+            async for chunk in BufferedByteReceiveStream(process.stdout):
+                yield chunk
+    return StreamingResponse(stream_pack_local_index(), headers={"content-type": "application/x-git-upload-pack-result"})
+
+
+@app.get("/api/v1/crates")
+def get_crate(request: Request):
+    """Serve crate download.
+    """
+    print(request)
+    raise HTTPException(status_code=400, detail="I don't understand!!!")
 
 
 def main():
