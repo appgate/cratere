@@ -16,7 +16,7 @@ poetry run black cratere
 
 Assuming cratere is listening on 172.17.0.1:8000:
 
-```
+```bash
 # cat ~/.cargo/config.toml
 [source.my-mirror]
 registry = "http://172.17.0.1:8000/crates.io-index"
@@ -26,5 +26,16 @@ replace-with = "my-mirror"
 
 ### Docker
 
+#### Build
+
+Export poetry lock file to standard requirements file and run docker build:
+```bash
 poetry export --without-hashes --format=requirements.txt > requirements.txt
 docker build -t cratere .
+```
+
+#### Run
+Expose the required port and mount storage volume:
+```
+docker run -p 0.0.0.0:8000:8000 cratere
+```
