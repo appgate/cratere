@@ -1,4 +1,5 @@
 import json
+import fcntl
 import subprocess
 from typing import Final
 from pathlib import Path
@@ -145,45 +146,56 @@ async def run():
 @app.get("/crates.io-index/info/refs")
 async def get_index_refs(request: Request):
     """See https://git-scm.com/docs/http-protocol"""
-    #async with httpx.AsyncClient() as client:
+    # async with httpx.AsyncClient() as client:
     #    r = await client.get(f"https://github.com/rust-lang{request.url.path}", params=request.query_params)
     #    print("HEADERS", r.headers)
     #    print("CONTENT", r.content)
-    #raise HTTPException(status_code=400, detail="I don't understand!!!")
+    # raise HTTPException(status_code=400, detail="I don't understand!!!")
     async def stream_pack_local_index():
         index_path = Path("crates.io-index-master")
-        async with await anyio.open_process(["git", "upload-pack", "--http-backend-info-refs", str(index_path)]) as process:
+        async with await anyio.open_process(
+            ["git", "upload-pack", "--http-backend-info-refs", str(index_path)]
+        ) as process:
             yield b"001e# service=git-upload-pack\n0000"
             async for chunk in BufferedByteReceiveStream(process.stdout):
                 yield chunk
-    return StreamingResponse(stream_pack_local_index(), headers={"content-type": "application/x-git-upload-pack-advertisement"})
+
+    return StreamingResponse(
+        stream_pack_local_index(),
+        headers={"content-type": "application/x-git-upload-pack-advertisement"},
+    )
 
 
 @app.post("/crates.io-index/git-upload-pack")
 async def post_index_upload_pack(request: Request):
     """See https://git-scm.com/docs/http-protocol"""
     body = await request.body()
+
     async def stream_pack_local_index():
         index_path = Path("crates.io-index-master")
-        async with await anyio.open_process(["git", "upload-pack", str(index_path)], stdin=subprocess.PIPE) as process:
+        async with await anyio.open_process(
+            ["git", "upload-pack", str(index_path)], stdin=subprocess.PIPE
+        ) as process:
             await process.stdin.send(body)
             async for chunk in BufferedByteReceiveStream(process.stdout):
                 yield chunk
-    return StreamingResponse(stream_pack_local_index(), headers={"content-type": "application/x-git-upload-pack-result"})
+
+    return StreamingResponse(
+        stream_pack_local_index(),
+        headers={"content-type": "application/x-git-upload-pack-result"},
+    )
 
 
 @app.get("/api/v1/crates/{name}/{version}/download")
 async def get_crate(name: str, version: str, request: Request):
-    """Serve crate download.
-    """
+    """Serve crate download."""
     body = await request.body()
 
-    storage = Path("storage")
-    if not storage.exists():
-        storage.mkdir()
+    storage = anyio.Path("storage")
+    await storage.mkdir(exist_ok=True)
 
     cached_file_path = storage / name / version
-    if cached_file_path.exists():
+    if await cached_file_path.exists():
         print(f"Serving {cached_file_path} from cache!")
         return FileResponse(cached_file_path)
 
@@ -194,13 +206,16 @@ async def get_crate(name: str, version: str, request: Request):
             location = r.headers["location"]
             async with client.stream("GET", location) as r:
                 r.raise_for_status()
-                # TODO: Locking!
-                (storage / name).mkdir(exist_ok=True)
-                async with await anyio.open_file(cached_file_path, "wb") as f:
+                await (storage / name).mkdir(exist_ok=True)
+                part_path = cached_file_path.with_suffix(".part")
+                async with await anyio.open_file(part_path, "wb") as f:
+                    # Lock partial file to avoid concurrency issues
+                    await anyio.to_thread.run_sync(fcntl.lockf, f, fcntl.LOCK_EX)
                     async for chunk in r.aiter_bytes():
                         yield chunk
                         # Write to cache too!
                         await f.write(chunk)
+                await part_path.rename(cached_file_path)
 
     return StreamingResponse(stream_remote_download())
 
