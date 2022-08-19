@@ -25,7 +25,7 @@ log.setLevel(logging.INFO)
 
 class Settings(BaseSettings):
     scheme: Literal["http", "https"] = "http"
-    host: str = "172.7.0.1"
+    host: str = "172.17.0.1"
     port: int = 8000
 
     class Config:
