@@ -5,3 +5,8 @@ Caching proxy for crates.io
 poetry run hypercorn cratere:app --bind 0.0.0.0 --reload --access-logfile -
 
 
+# Code formatting
+
+poetry run black cratere
+
+
