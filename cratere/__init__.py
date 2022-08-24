@@ -283,6 +283,10 @@ async def run() -> None:
         func=update_crates_index,
         data=settings.index,
     )
+    log.info(
+        "Will cleanup crates cache on the following cron schedule: %s",
+        settings.cleanup_cache_schedule,
+    )
     cleanup_cache_job = acron.Job(
         name="Cleanup crates cache",
         schedule=settings.cleanup_cache_schedule,
