@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 import errno
 import json
 import datetime
@@ -188,7 +189,8 @@ async def write_crates_config(index_path: anyio.Path) -> None:
     )
 
 
-class CleanupCacheData(BaseModel):
+@dataclasses.dataclass(frozen=True)
+class CleanupCacheData:
     cache_dir: anyio.Path
     max_days_unused: int
 
