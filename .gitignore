@@ -3,3 +3,4 @@ crates.io-index-master.zip
 __pycache__/
 storage/
 requirements.txt
+.idea/
