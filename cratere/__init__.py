@@ -156,7 +156,7 @@ async def write_crates_config(index_path: anyio.Path) -> None:
 
     config_path = index_path / "config.json"
     log.info("Writing crates config %s to %s", crates_config_model, config_path)
-    await config_path.write_text(json.dumps(crates_config_model.dict(), indent=4))
+    await config_path.write_text(json.dumps(crates_config_model.dict(), indent=4) + "\n")
     await anyio.run_process(
         [
             "git",
