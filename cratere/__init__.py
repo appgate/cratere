@@ -185,7 +185,7 @@ async def run():
         await update_crates_index(settings.index)
 
     # Write crates config in case it has change since last start
-    write_crates_config(settings.index)
+    await write_crates_config(settings.index)
 
     crates_config = read_crates_config(settings.index)
     log.info("Started with crates config %s", crates_config)
