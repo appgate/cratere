@@ -1,16 +1,19 @@
 import asyncio
+import errno
 import json
 import datetime
 import fcntl
 import logging
+import os
 import subprocess
+import time
 from typing import Literal
 from pathlib import Path
 
 import acron
 import anyio
 from anyio.streams.buffered import BufferedByteReceiveStream
-from fastapi import FastAPI, Request, HTTPException, Response
+from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, FileResponse
 import httpx
 from pydantic import BaseModel, Field, BaseSettings
@@ -32,9 +35,15 @@ class Settings(BaseSettings):
     port: int = 8000
     index: Path = Path("crates.io-index-master")
     cache: Path = Path("storage")
-    # Schedule for crates index update https://crontab.guru/#*_04_*_*_*
-    # Default: At every minute past hour 4.
-    index_update_schedule: str = "* 04 * * *"
+    # Schedule for crates index update https://crontab.guru/#0_4_*_*_*
+    # Default: At 04:00.
+    index_update_schedule: str = "0 4 * * *"
+    # Schedule for crates cache cleanup https://crontab.guru/#0_3_*_*_*
+    # Default: At 03:00.
+    cleanup_cache_schedule: str = "0 3 * * *"
+    # Cached files will be deleted if they have not been used within the given timeframe
+    # Default: about half a year
+    max_days_unused: int = 30 * 6
 
     class Config:
         env_prefix = "cratere_"
@@ -156,7 +165,9 @@ async def write_crates_config(index_path: anyio.Path) -> None:
 
     config_path = index_path / "config.json"
     log.info("Writing crates config %s to %s", crates_config_model, config_path)
-    await config_path.write_text(json.dumps(crates_config_model.dict(), indent=4) + "\n")
+    await config_path.write_text(
+        json.dumps(crates_config_model.dict(), indent=4) + "\n"
+    )
     await anyio.run_process(
         [
             "git",
@@ -178,14 +189,85 @@ async def write_crates_config(index_path: anyio.Path) -> None:
     )
 
 
+class CleanupCacheData(BaseModel):
+    cache_dir: anyio.Path
+    max_days_unused: int
+
+
+async def cleanup_cache(data: CleanupCacheData) -> None:
+    """
+    Cleanup cached artifacts that have not been used for at most x days.
+    """
+    max_days_unused = data.max_days_unused
+    cache_dir = data.cache_dir
+
+    log.info(
+        "Starting cleanup of cache directory with %d max days unused", max_days_unused
+    )
+
+    vfs_stats = await anyio.to_thread.run_sync(os.statvfs, cache_dir)
+
+    if vfs_stats.f_flag & os.ST_NOATIME > 0:
+        raise ValueError(
+            "crates cache cleanup requires atime or relatime enabled on the filesystem"
+        )
+
+    if vfs_stats.f_flag & os.ST_RELATIME > 0 and max_days_unused < 2:
+        raise ValueError(
+            "crates cache cleanup only has a precision of 1 day"
+            " when relatime is enabled on the filesystem"
+        )
+
+    current_time = time.time()
+    seconds_in_day = 3600 * 24
+    max_seconds_unused = max_days_unused * seconds_in_day
+    async for crate_dir_path in anyio.Path(cache_dir).iterdir():
+        crate_dir_stat = await crate_dir_path.lstat()
+        dir_time_unused = current_time - crate_dir_stat.st_atime
+        if dir_time_unused <= max_seconds_unused:
+            continue
+
+        # Crate directory has not been visited in a while, let's look deeper
+        files_visited = 0
+        files_deleted = 0
+        async for crate_path in crate_dir_path.iterdir():
+            files_visited += 1
+            crate_stat = await crate_path.lstat()
+            time_unused = current_time - crate_stat.st_atime
+            if (current_time - crate_stat.st_atime) > max_seconds_unused:
+                # Crate has not been used for a while, delete it!
+                log.info(
+                    "Deleting crate %s/%s, unused for %d days",
+                    crate_dir_path.name,
+                    crate_path.name,
+                    time_unused // seconds_in_day,
+                )
+                await crate_path.unlink()
+                files_deleted += 1
+
+        # All files in crate directory were deleted, remove the crate directory as well.
+        if files_visited == files_deleted:
+            try:
+                await crate_dir_path.rmdir()
+            except OSError as e:
+                if e.errno == errno.ENOTEMPTY:
+                    # Looks like the directory isn't empty anymore
+                    pass
+            log.info(
+                "Deleted crate directory %s, unused for %d days",
+                crate_dir_path.name,
+                dir_time_unused // seconds_in_day,
+            )
+
+
 @app.on_event("startup")
-async def run():
+async def run() -> None:
     if not settings.index.exists():
         # Update crates index if it doesn't exist, then update it on a schedule.
         await update_crates_index(settings.index)
 
     # Write crates config in case it has change since last start
-    await write_crates_config(settings.index)
+    await write_crates_config(anyio.Path(settings.index))
 
     crates_config = read_crates_config(settings.index)
     log.info("Started with crates config %s", crates_config)
@@ -200,7 +282,17 @@ async def run():
         func=update_crates_index,
         data=settings.index,
     )
-    asyncio.create_task(acron.run({update_crates_index_job}))
+    cleanup_cache_job = acron.Job(
+        name="Cleanup crates cache",
+        schedule=settings.cleanup_cache_schedule,
+        func=cleanup_cache,
+        data=CleanupCacheData(
+            cache_dir=anyio.Path(settings.cache),
+            max_days_unused=settings.max_days_unused,
+        ),
+    )
+    jobs: set[acron.Job] = {update_crates_index_job, cleanup_cache_job}
+    asyncio.create_task(acron.run(jobs))
 
 
 @app.get("/crates.io-index/info/refs")
