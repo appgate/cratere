@@ -2,7 +2,6 @@ import asyncio
 import errno
 import json
 import datetime
-import fcntl
 import logging
 import os
 import subprocess
@@ -357,18 +356,22 @@ async def get_crate(name: str, version: str, request: Request):
                 r.raise_for_status()
                 await (storage / name).mkdir(exist_ok=True)
                 part_path = cached_file_path.with_suffix(".part")
-                log.debug("Writing cached crate to %s", part_path)
-                async with await anyio.open_file(part_path, "wb") as f:
-                    # Lock partial file to avoid concurrency issues
-                    await anyio.to_thread.run_sync(fcntl.lockf, f, fcntl.LOCK_EX)
+                try:
+                    async with await anyio.open_file(part_path, "xb") as f:
+                        log.debug("Writing cached crate to %s", part_path)
+                        async for chunk in r.aiter_bytes():
+                            yield chunk
+                            # Write to cache too!
+                            await f.write(chunk)
+                    log.debug(
+                        "Moving cached crate from %s to %s", part_path, cached_file_path
+                    )
+                    await part_path.rename(cached_file_path)
+                except FileExistsError:
+                    # Cached file is already being downloaded, just stream directly bypassing caching logic.
+                    log.debug("Crate already being cached to %s", part_path)
                     async for chunk in r.aiter_bytes():
                         yield chunk
-                        # Write to cache too!
-                        await f.write(chunk)
-                log.debug(
-                    "Moving cached crate from %s to %s", part_path, cached_file_path
-                )
-                await part_path.rename(cached_file_path)
 
     return StreamingResponse(stream_remote_download())
 
