@@ -92,6 +92,10 @@ async def update_crates_index(index_path: anyio.Path) -> None:
     # Get rid of older index directories,
     # don't delete the one we just replaced as it can still be in use.
     async for possible_index_path in anyio.Path(index_path.parent).iterdir():
+        if not possible_index_path.name.startswith(index_path.name):
+            # Don't touch unrelated files
+            continue
+
         if await possible_index_path.is_symlink():
             # Don't touch symlinks
             continue
