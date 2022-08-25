@@ -320,11 +320,11 @@ async def run() -> None:
 
 
 @app.get("/crates.io-index/info/refs")
-async def get_index_refs(request: Request):
+async def get_index_refs():
     """See https://git-scm.com/docs/http-protocol"""
 
     async def stream_pack_local_index():
-        index_path = settings.index
+        index_path = await anyio.Path(settings.index).resolve()
         cmd = ["git", "upload-pack", "--http-backend-info-refs", str(index_path)]
         completed_process = await anyio.run_process(cmd, check=True)
         # Header for git http protocol
@@ -344,7 +344,7 @@ async def post_index_upload_pack(request: Request):
     body = await request.body()
 
     async def stream_pack_local_index():
-        index_path = settings.index
+        index_path = await anyio.Path(settings.index).resolve()
         async with await anyio.open_process(
             ["git", "upload-pack", str(index_path)], stdin=subprocess.PIPE
         ) as process:
