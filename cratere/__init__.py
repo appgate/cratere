@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import time
 from typing import Literal
-from pathlib import Path
+import pathlib
 
 import acron
 import anyio
@@ -34,8 +34,8 @@ class Settings(BaseSettings):
     scheme: Literal["http", "https"] = "http"
     host: str = "172.17.0.1"
     port: int = 8000
-    index: Path = Path("crates.io-index-master")
-    cache: Path = Path("storage")
+    index: pathlib.Path = pathlib.Path("crates.io-index-master")
+    cache: pathlib.Path = pathlib.Path("storage")
     # Schedule for crates index update https://crontab.guru/#0_4_*_*_*
     # Default: At 04:00.
     index_update_schedule: str = "0 4 * * *"
@@ -141,11 +141,10 @@ async def update_crates_index(index_path: anyio.Path) -> None:
         await anyio.to_thread.run_sync(shutil.rmtree, possible_index_path)
 
 
-def read_crates_config(index_path: Path) -> CratesConfigModel:
+async def read_crates_config(index_path: anyio.Path) -> CratesConfigModel:
     """See https://doc.rust-lang.org/cargo/reference/registries.html#index-format"""
     config_path = index_path / "config.json"
-    with config_path.open("rb") as f:
-        config = json.load(f)
+    config = json.loads(await config_path.read_bytes())
     config_model = CratesConfigModel(**config)
     return config_model
 
@@ -178,7 +177,7 @@ async def write_crates_config(index_path: anyio.Path) -> None:
         dl=f"{settings.scheme}://{settings.host}:{settings.port}/api/v1/crates",
         api=f"{settings.scheme}://{settings.host}:{settings.port}",
     )
-    if crates_config_model == read_crates_config(Path(index_path)):
+    if crates_config_model == await read_crates_config(index_path):
         return
 
     config_path = index_path / "config.json"
@@ -281,14 +280,16 @@ async def cleanup_cache(data: CleanupCacheData) -> None:
 
 @app.on_event("startup")
 async def run() -> None:
-    if not settings.index.exists():
+    index_path = anyio.Path(settings.index)
+
+    if not await index_path.exists():
         # Update crates index if it doesn't exist, then update it on a schedule.
-        await update_crates_index(anyio.Path(settings.index))
+        await update_crates_index(index_path)
 
     # Write crates config in case it has change since last start
     await write_crates_config(anyio.Path(settings.index))
 
-    crates_config = read_crates_config(settings.index)
+    crates_config = await read_crates_config(index_path)
     log.info("Started with crates config %s", crates_config)
 
     log.info(
@@ -299,7 +300,7 @@ async def run() -> None:
         name="Update crates index",
         schedule=settings.index_update_schedule,
         func=update_crates_index,
-        data=anyio.Path(settings.index),
+        data=index_path,
     )
     log.info(
         "Will cleanup crates cache on the following cron schedule: %s",
@@ -310,7 +311,7 @@ async def run() -> None:
         schedule=settings.cleanup_cache_schedule,
         func=cleanup_cache,
         data=CleanupCacheData(
-            cache_dir=anyio.Path(settings.cache),
+            cache_dir=index_path,
             max_days_unused=settings.max_days_unused,
         ),
     )
@@ -360,7 +361,7 @@ async def post_index_upload_pack(request: Request):
 @app.get("/api/v1/crates/{name}/{version}/download")
 async def get_crate(name: str, version: str, request: Request):
     """Serve crate download."""
-    body = await request.body()
+    _ = await request.body()
 
     storage = anyio.Path(settings.cache)
     await storage.mkdir(exist_ok=True)
