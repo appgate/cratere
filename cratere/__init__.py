@@ -5,6 +5,7 @@ import json
 import datetime
 import logging
 import os
+import shutil
 import subprocess
 import time
 from typing import Literal
@@ -81,9 +82,9 @@ class PackageMetadataModel(BaseModel):
     features2: dict[str, list[str]] = Field(default_factory=dict)
 
 
-async def download_crates_index(index_path: Path) -> None:
+async def download_crates_index(index_path: anyio.Path) -> None:
     """The crates index is just a git repo, clone it!"""
-    if index_path.exists():
+    if await index_path.exists():
         log.info("Index already downloaded")
         return
 
@@ -101,10 +102,10 @@ async def download_crates_index(index_path: Path) -> None:
     log.info("Downloaded crates.io index to %s", index_path)
 
 
-async def update_crates_index(index_path: Path) -> None:
+async def update_crates_index(index_path: anyio.Path) -> None:
     # Resolve symlink to current index
-    if index_path.exists():
-        assert index_path.is_symlink(), "index path should be a symlink"
+    if await index_path.exists():
+        assert await index_path.is_symlink(), "index path should be a symlink"
 
     # Use suffix based on current datetime with iso accuracy, e.g. 2022-08-19T13:40:33
     suffix = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()[:-13]
@@ -114,6 +115,9 @@ async def update_crates_index(index_path: Path) -> None:
     await download_crates_index(new_index)
     await write_crates_config(anyio.Path(new_index))
 
+    # Save previous index path for later
+    previous_index = await index_path.resolve()
+
     # Atomically replace symlink to point to new index
     new_index_link = new_index.parent / f"{new_index}.name.lnk"
     cmd = ["ln", "-s", str(new_index), str(new_index_link)]
@@ -121,6 +125,20 @@ async def update_crates_index(index_path: Path) -> None:
     cmd = ["mv", "-T", str(new_index_link), str(index_path)]
     await anyio.run_process(cmd, check=True)
     log.info("Index %s updated to %s", index_path, new_index)
+
+    # Get rid of older index directories,
+    # don't delete the one we just replaced as it can still be in use.
+    async for possible_index_path in anyio.Path(index_path.parent).iterdir():
+        if await possible_index_path.is_symlink():
+            # Don't touch symlinks
+            continue
+
+        if possible_index_path.name in (previous_index.name, new_index.name):
+            # Don't touch the current and previous index directories
+            continue
+
+        log.info("Deleting old index directory %s", possible_index_path)
+        await anyio.to_thread.run_sync(shutil.rmtree, possible_index_path)
 
 
 def read_crates_config(index_path: Path) -> CratesConfigModel:
@@ -265,7 +283,7 @@ async def cleanup_cache(data: CleanupCacheData) -> None:
 async def run() -> None:
     if not settings.index.exists():
         # Update crates index if it doesn't exist, then update it on a schedule.
-        await update_crates_index(settings.index)
+        await update_crates_index(anyio.Path(settings.index))
 
     # Write crates config in case it has change since last start
     await write_crates_config(anyio.Path(settings.index))
@@ -281,7 +299,7 @@ async def run() -> None:
         name="Update crates index",
         schedule=settings.index_update_schedule,
         func=update_crates_index,
-        data=settings.index,
+        data=anyio.Path(settings.index),
     )
     log.info(
         "Will cleanup crates cache on the following cron schedule: %s",
