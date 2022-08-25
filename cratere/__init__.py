@@ -88,7 +88,7 @@ async def download_crates_index(index_path: Path) -> None:
         return
 
     log.info("Downloading crates.io index using git clone ...")
-    # cargo doens't like a shallow copy
+    # cargo doesn't like a shallow copy
     await anyio.run_process(
         [
             "git",
