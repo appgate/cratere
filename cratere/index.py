@@ -1,4 +1,5 @@
 import datetime
+import functools
 import json
 import shutil
 
@@ -12,8 +13,10 @@ __all__ = [
     "download_crates_index",
     "update_crates_index",
     "read_crates_config",
-    "write_creates_config",
+    "write_crates_config",
+    "write_crates_configs",
     "read_package_metadata",
+    "alternate_index_path",
 ]
 
 
@@ -65,19 +68,14 @@ async def download_crates_index(index_path: anyio.Path) -> None:
     log.info("Downloaded crates.io index to %s", index_path)
 
 
-async def update_crates_index(index_path: anyio.Path) -> None:
-    # Resolve symlink to current index
-    if await index_path.exists():
-        assert await index_path.is_symlink(), "index path should be a symlink"
+def alternate_index_path(index_path: anyio.Path, host: str) -> anyio.Path:
+    return index_path.with_name(f"{host}-{index_path}")
 
-    # Use suffix based on current datetime with iso accuracy, e.g. 2022-08-19T13:40:33
-    suffix = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()[:-13]
-    new_index = index_path.parent / f"{index_path.name}.{suffix}"
 
-    # Download new index
-    await download_crates_index(new_index)
-    await write_crates_config(anyio.Path(new_index))
-
+async def _make_current_index_path(
+    index_path: anyio.Path,
+    new_index: anyio.Path,
+) -> None:
     # Save previous index path for later
     previous_index = await index_path.resolve()
 
@@ -106,6 +104,46 @@ async def update_crates_index(index_path: anyio.Path) -> None:
 
         log.info("Deleting old index directory %s", possible_index_path)
         await anyio.to_thread.run_sync(shutil.rmtree, possible_index_path)
+
+
+async def update_crates_index(
+    index_path: anyio.Path, alternate_hosts: list[str]
+) -> None:
+    # Resolve symlink to current index
+    if await index_path.exists():
+        assert await index_path.is_symlink(), "index path should be a symlink"
+
+    # Use suffix based on current datetime with iso accuracy, e.g. 2022-08-19T13:40:33
+    suffix = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()[:-13]
+    new_index = index_path.parent / f"{index_path.name}.{suffix}"
+
+    # Download new index
+    await download_crates_index(new_index)
+    async with anyio.create_task_group() as task_group:
+        for host in alternate_hosts:
+            new_alternate_index = alternate_index_path(new_index, host)
+            task_group.start_soon(
+                functools.partial(
+                    anyio.run_process,
+                    ["cp", "-rp", str(new_index), str(new_alternate_index)],
+                    check=True,
+                )
+            )
+
+    await write_crates_configs(anyio.Path(new_index), alternate_hosts)
+
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(
+            functools.partial(_make_current_index_path, index_path, new_index)
+        )
+        for host in alternate_hosts:
+            alternate_index = alternate_index_path(index_path, host)
+            new_alternate_index = alternate_index_path(new_index, host)
+            task_group.start_soon(
+                functools.partial(
+                    _make_current_index_path, alternate_index, new_alternate_index
+                )
+            )
 
 
 async def read_crates_config(index_path: anyio.Path) -> CratesConfigModel:
@@ -138,11 +176,22 @@ def read_package_metadata(name: str) -> list[PackageMetadataModel]:
     return metadata
 
 
-async def write_crates_config(index_path: anyio.Path) -> None:
+async def write_crates_config(
+    index_path: anyio.Path,
+    *,
+    host: str = settings.host,
+    port: int | None = settings.port,
+) -> None:
     """Override the default crates.io config to point to this proxy instead"""
+
+    if port is not None:
+        authority = f"{host}:{port}"
+    else:
+        authority = host
+
     crates_config_model = CratesConfigModel(
-        dl=f"{settings.scheme}://{settings.host}:{settings.port}/api/v1/crates",
-        api=f"{settings.scheme}://{settings.host}:{settings.port}",
+        dl=f"{settings.scheme}://{authority}/api/v1/crates",
+        api=f"{settings.scheme}://{authority}",
     )
     if crates_config_model == await read_crates_config(index_path):
         return
@@ -171,3 +220,17 @@ async def write_crates_config(index_path: anyio.Path) -> None:
             "GIT_COMMITTER_EMAIL": "cratere@noreply.appgate.com",
         },
     )
+
+
+async def write_crates_configs(
+    index_path: anyio.Path, alternate_hosts: list[str] = settings.alternate_hosts
+) -> None:
+    async with anyio.create_task_group() as task_group:
+        await write_crates_config(index_path)
+        for host in alternate_hosts:
+            new_alternate_index = alternate_index_path(index_path, host)
+            task_group.start_soon(
+                functools.partial(
+                    write_crates_config, anyio.Path(new_alternate_index), host=host
+                )
+            )

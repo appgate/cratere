@@ -10,6 +10,7 @@ from cratere.settings import settings
 
 __all__ = [
     "cleanup_cache",
+    "CleanupCacheData",
 ]
 
 

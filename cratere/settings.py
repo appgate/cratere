@@ -1,7 +1,7 @@
 import pathlib
-from typing import Literal
+from typing import Literal, Any
 
-from pydantic import BaseSettings
+from pydantic import BaseSettings, Field
 
 __all__ = [
     "Settings",
@@ -10,9 +10,10 @@ __all__ = [
 
 
 class Settings(BaseSettings):
+    host: str
     scheme: Literal["http", "https"] = "http"
-    host: str = "172.17.0.1"
-    port: int = 8000
+    port: int | None = None
+    alternate_hosts: list[str] = Field(default_factory=list)
     index: pathlib.Path = pathlib.Path("crates.io-index-master")
     cache: pathlib.Path = pathlib.Path("storage")
     # Schedule for crates index update https://crontab.guru/#0_4_*_*_*
@@ -27,6 +28,12 @@ class Settings(BaseSettings):
 
     class Config:
         env_prefix = "cratere_"
+
+        @classmethod
+        def parse_env_var(cls, field_name: str, raw_val: str) -> Any:
+            if field_name == "alternate_hosts":
+                return [host.strip() for host in raw_val.split(",")]
+            return cls.json_loads(raw_val)  # type: ignore[attr-defined]
 
 
 settings = Settings()
