@@ -152,24 +152,20 @@ async def update_crates_index(
         await download_crates_index(new_index)
 
         # And copy to alternate indexes if necessary
-        async with anyio.create_task_group() as task_group:
-            for host in alternate_hosts:
-                new_alternate_index = alternate_index_path(new_index, host)
-                if not await new_alternate_index.exists():
-                    await task_group.start(copy_crates_index, new_index, new_alternate_index)
+        for host in alternate_hosts:
+            new_alternate_index = alternate_index_path(new_index, host)
+            if not await new_alternate_index.exists():
+                await copy_crates_index(new_index, new_alternate_index)
 
     # Write crates configuration for each index
     await write_crates_configs(new_index, alternate_hosts)
 
     # And finally make the new index the current index
-    async with anyio.create_task_group() as task_group:
-        await task_group.start(_make_current_index_path, index_path, new_index)
-        for host in alternate_hosts:
-            alternate_index = alternate_index_path(index_path, host)
-            new_alternate_index = alternate_index_path(new_index, host)
-            await task_group.start(
-                _make_current_index_path, alternate_index, new_alternate_index
-            )
+    await _make_current_index_path(index_path, new_index)
+    for host in alternate_hosts:
+        alternate_index = alternate_index_path(index_path, host)
+        new_alternate_index = alternate_index_path(new_index, host)
+        await _make_current_index_path(alternate_index, new_alternate_index)
 
 
 async def read_crates_config(index_path: anyio.Path) -> CratesConfigModel:
@@ -250,8 +246,7 @@ async def write_crates_config(
 async def write_crates_configs(
     index_path: anyio.Path, alternate_hosts: list[str] = settings.alternate_hosts
 ) -> None:
-    async with anyio.create_task_group() as task_group:
-        await task_group.start(write_crates_config, index_path)
-        for host in alternate_hosts:
-            new_alternate_index = alternate_index_path(index_path, host)
-            await task_group.start(write_crates_config, new_alternate_index, host)
+    await write_crates_config(index_path)
+    for host in alternate_hosts:
+        new_alternate_index = alternate_index_path(index_path, host)
+        await write_crates_config(new_alternate_index, host)
