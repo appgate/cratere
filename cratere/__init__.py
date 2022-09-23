@@ -24,7 +24,6 @@ __all__ = ["main"]
 app = FastAPI()
 
 
-@app.on_event("startup")
 async def run() -> None:
     index_path = anyio.Path(settings.index)
 
@@ -71,6 +70,15 @@ async def run() -> None:
     )
     jobs: set[acron.Job] = {update_crates_index_job, cleanup_cache_job}
     asyncio.create_task(acron.run(jobs))
+    log.info("Ready to go!")
+
+
+@app.on_event("startup")
+async def startup() -> None:
+    """
+    Hack for now, ideally we should increase the hypercorn startup timeout.
+    """
+    asyncio.create_task(run())
 
 
 async def _resolve_index_path(host: str | None) -> anyio.Path:
