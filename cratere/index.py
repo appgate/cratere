@@ -130,13 +130,13 @@ async def update_crates_index(
     new_index = index_path.parent / f"{index_path.name}.{suffix}"
 
     # Download new index
-    if not new_index.exists():
+    if not await new_index.exists():
         await download_crates_index(new_index)
 
     async with anyio.create_task_group() as task_group:
         for host in alternate_hosts:
             new_alternate_index = alternate_index_path(new_index, host)
-            if not new_alternate_index.exists():
+            if not await new_alternate_index.exists():
                 log.info(
                     "Copying index %s to alternate host index %s",
                     new_index,
