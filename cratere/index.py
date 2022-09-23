@@ -69,7 +69,7 @@ async def download_crates_index(index_path: anyio.Path) -> None:
 
 
 def alternate_index_path(index_path: anyio.Path, host: str) -> anyio.Path:
-    return index_path.with_name(f"{host}-{index_path}")
+    return index_path.with_name(f"{host}-{index_path.name}")
 
 
 async def _make_current_index_path(
