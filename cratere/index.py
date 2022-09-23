@@ -79,6 +79,12 @@ async def _make_current_index_path(
     # Save previous index path for later
     previous_index = await index_path.resolve()
 
+    if previous_index == new_index:
+        # Index already points to given index
+        return
+
+    log.info("Updating index %s to point to %s", index_path, new_index)
+
     # Atomically replace symlink to point to new index
     new_index_link = new_index.parent / f"{new_index}.name.lnk"
     cmd = ["ln", "-s", str(new_index), str(new_index_link)]
@@ -113,24 +119,38 @@ async def update_crates_index(
     if await index_path.exists():
         assert await index_path.is_symlink(), "index path should be a symlink"
 
+    for host in alternate_hosts:
+        alternate_path = alternate_index_path(index_path, host)
+        assert (
+            await alternate_path.is_symlink()
+        ), "alternate index path should be a symlink"
+
     # Use suffix based on current datetime with iso accuracy, e.g. 2022-08-19T13:40:33
     suffix = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()[:-13]
     new_index = index_path.parent / f"{index_path.name}.{suffix}"
 
     # Download new index
-    await download_crates_index(new_index)
+    if not new_index.exists():
+        await download_crates_index(new_index)
+
     async with anyio.create_task_group() as task_group:
         for host in alternate_hosts:
             new_alternate_index = alternate_index_path(new_index, host)
-            task_group.start_soon(
-                functools.partial(
-                    anyio.run_process,
-                    ["cp", "-rp", str(new_index), str(new_alternate_index)],
-                    check=True,
+            if not new_alternate_index.exists():
+                log.info(
+                    "Copying index %s to alternate host index %s",
+                    new_index,
+                    new_alternate_index,
                 )
-            )
+                task_group.start_soon(
+                    functools.partial(
+                        anyio.run_process,
+                        ["cp", "-rp", str(new_index), str(new_alternate_index)],
+                        check=True,
+                    )
+                )
 
-    await write_crates_configs(anyio.Path(new_index), alternate_hosts)
+    await write_crates_configs(new_index, alternate_hosts)
 
     async with anyio.create_task_group() as task_group:
         task_group.start_soon(
@@ -226,7 +246,7 @@ async def write_crates_configs(
     index_path: anyio.Path, alternate_hosts: list[str] = settings.alternate_hosts
 ) -> None:
     async with anyio.create_task_group() as task_group:
-        await write_crates_config(index_path)
+        task_group.start_soon(write_crates_config, index_path)
         for host in alternate_hosts:
             new_alternate_index = alternate_index_path(index_path, host)
             task_group.start_soon(

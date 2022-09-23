@@ -28,9 +28,8 @@ app = FastAPI()
 async def run() -> None:
     index_path = anyio.Path(settings.index)
 
-    if not await index_path.exists():
-        # Update crates index if it doesn't exist, then update it on a schedule.
-        await update_crates_index(index_path, settings.alternate_hosts)
+    # Update crates index if it doesn't exist, then update it on a schedule.
+    await update_crates_index(index_path, settings.alternate_hosts)
 
     # Write crates config in case it has change since last start
     await write_crates_configs(anyio.Path(settings.index))
