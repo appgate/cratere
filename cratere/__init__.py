@@ -1,6 +1,7 @@
 import asyncio
 import functools
 import subprocess
+import sys
 
 import acron
 import anyio
@@ -73,12 +74,23 @@ async def run() -> None:
     log.info("Ready to go!")
 
 
+async def run_wrapper():
+    """
+    Run wrapper to log exception for background task.
+    """
+    try:
+        await run()
+    except Exception:
+        log.exception("Startup failed!")
+        sys.exit(1)
+
+
 @app.on_event("startup")
 async def startup() -> None:
     """
     Hack for now, ideally we should increase the hypercorn startup timeout.
     """
-    asyncio.create_task(run())
+    asyncio.create_task(run_wrapper())
 
 
 async def _resolve_index_path(host: str | None) -> anyio.Path:

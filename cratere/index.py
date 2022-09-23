@@ -1,7 +1,7 @@
 import datetime
-import functools
 import json
 import shutil
+import time
 
 import anyio
 from pydantic import BaseModel, Field
@@ -112,6 +112,18 @@ async def _make_current_index_path(
         await anyio.to_thread.run_sync(shutil.rmtree, possible_index_path)
 
 
+async def copy_crates_index(source: anyio.Path, destination: anyio.Path) -> None:
+    log.info(
+        "Copying index %s to alternate host index %s",
+        source,
+        destination,
+    )
+    await anyio.run_process(
+        ["cp", "-rp", str(source), str(destination)],
+        check=True,
+    )
+
+
 async def update_crates_index(
     index_path: anyio.Path, alternate_hosts: list[str]
 ) -> None:
@@ -121,36 +133,35 @@ async def update_crates_index(
 
     for host in alternate_hosts:
         alternate_path = alternate_index_path(index_path, host)
-        if await alternate_path.exists() and not await alternate_path.is_symlink():
-            log.error(
-                "Alternate index path %s should be a symlink, deleting it",
-                alternate_path,
-            )
-            await anyio.to_thread.run_sync(shutil.rmtree, alternate_path)
+        if await alternate_path.exists():
+            assert await alternate_path.is_symlink(), "alternate index path should be a symlink"
 
-    # Use suffix based on current datetime with iso accuracy, e.g. 2022-08-19T13:40:33
-    suffix = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()[:-13]
-    new_index = index_path.parent / f"{index_path.name}.{suffix}"
+    previous_index = await index_path.resolve()
+    stat = await previous_index.lstat()
+    if (time.time() - stat.st_ctime) < (3600.0 * 6.0):
+        # Existing index is less than 6 hours old, keep it
+        new_index = previous_index
+        log.info("Existing index is recent enough, keeping %s", new_index)
+    else:
+        # Use suffix based on current datetime with iso accuracy, e.g. 2022-08-19T13:40:33
+        suffix = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()[:-13]
+        new_index = index_path.parent / f"{index_path.name}.{suffix}"
 
     # Download new index
     if not await new_index.exists():
         await download_crates_index(new_index)
 
-        for host in alternate_hosts:
-            new_alternate_index = alternate_index_path(new_index, host)
-            if not await new_alternate_index.exists():
-                log.info(
-                    "Copying index %s to alternate host index %s",
-                    new_index,
-                    new_alternate_index,
-                )
-                await anyio.run_process(
-                    ["cp", "-rp", str(new_index), str(new_alternate_index)],
-                    check=True,
-                )
+        # And copy to alternate indexes if necessary
+        async with anyio.create_task_group() as task_group:
+            for host in alternate_hosts:
+                new_alternate_index = alternate_index_path(new_index, host)
+                if not await new_alternate_index.exists():
+                    await task_group.start(copy_crates_index, new_index, new_alternate_index)
 
+    # Write crates configuration for each index
     await write_crates_configs(new_index, alternate_hosts)
 
+    # And finally make the new index the current index
     async with anyio.create_task_group() as task_group:
         await task_group.start(_make_current_index_path, index_path, new_index)
         for host in alternate_hosts:
@@ -193,7 +204,6 @@ def read_package_metadata(name: str) -> list[PackageMetadataModel]:
 
 async def write_crates_config(
     index_path: anyio.Path,
-    *,
     host: str = settings.host,
     port: int | None = settings.port,
 ) -> None:
@@ -244,8 +254,4 @@ async def write_crates_configs(
         await task_group.start(write_crates_config, index_path)
         for host in alternate_hosts:
             new_alternate_index = alternate_index_path(index_path, host)
-            await task_group.start(
-                functools.partial(
-                    write_crates_config, anyio.Path(new_alternate_index), host=host
-                )
-            )
+            await task_group.start(write_crates_config, new_alternate_index, host)
