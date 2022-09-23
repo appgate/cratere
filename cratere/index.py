@@ -136,16 +136,19 @@ async def update_crates_index(
         if await alternate_path.exists():
             assert await alternate_path.is_symlink(), "alternate index path should be a symlink"
 
-    previous_index = await index_path.resolve()
-    stat = await previous_index.lstat()
-    if (time.time() - stat.st_ctime) < (3600.0 * 6.0):
-        # Existing index is less than 6 hours old, keep it
-        new_index = previous_index
-        log.info("Existing index is recent enough, keeping %s", new_index)
-    else:
-        # Use suffix based on current datetime with iso accuracy, e.g. 2022-08-19T13:40:33
-        suffix = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()[:-13]
-        new_index = index_path.parent / f"{index_path.name}.{suffix}"
+    # Use suffix based on current datetime with iso accuracy, e.g. 2022-08-19T13:40:33
+    suffix = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()[:-13]
+    new_index = index_path.parent / f"{index_path.name}.{suffix}"
+
+    try:
+        previous_index = await index_path.resolve()
+        stat = await previous_index.lstat()
+        if (time.time() - stat.st_ctime) < (3600.0 * 6.0):
+            # Existing index is less than 6 hours old, keep it
+            new_index = previous_index
+            log.info("Existing index is recent enough, keeping %s", new_index)
+    except FileNotFoundError:
+        pass
 
     # Download new index
     if not await new_index.exists():
