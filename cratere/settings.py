@@ -29,11 +29,5 @@ class Settings(BaseSettings):
     class Config:
         env_prefix = "cratere_"
 
-        @classmethod
-        def parse_env_var(cls, field_name: str, raw_val: str) -> Any:
-            if field_name == "alternate_hosts":
-                return [host.strip() for host in raw_val.split(",")]
-            return cls.json_loads(raw_val)  # type: ignore[attr-defined]
-
 
 settings = Settings()
