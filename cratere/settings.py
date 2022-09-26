@@ -1,6 +1,6 @@
+import anyio
 import functools
-import pathlib
-from typing import Literal, Any
+from typing import Literal
 
 from pydantic import BaseSettings, Field
 
@@ -15,8 +15,8 @@ class Settings(BaseSettings):
     scheme: Literal["http", "https"] = "http"
     port: int | None = None
     alternate_hosts: list[str] = Field(default_factory=list)
-    index: pathlib.Path = pathlib.Path("crates.io-index-master")
-    cache: pathlib.Path = pathlib.Path("storage")
+    index: anyio.Path = anyio.Path("crates.io-index-master")
+    cache: anyio.Path = anyio.Path("storage")
     # Schedule for crates index update https://crontab.guru/#0_4_*_*_*
     # Default: At 04:00.
     index_update_schedule: str = "0 4 * * *"

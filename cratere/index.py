@@ -95,7 +95,7 @@ async def _make_current_index_path(
 
     # Get rid of older index directories,
     # don't delete the one we just replaced as it can still be in use.
-    async for possible_index_path in anyio.Path(index_path.parent).iterdir():
+    async for possible_index_path in index_path.parent.iterdir():
         if not possible_index_path.name.startswith(index_path.name):
             # Don't touch unrelated files
             continue
@@ -181,7 +181,7 @@ async def read_crates_config(index_path: anyio.Path) -> CratesConfigModel:
     return config_model
 
 
-def read_package_metadata(name: str) -> list[PackageMetadataModel]:
+async def read_package_metadata(name: str) -> list[PackageMetadataModel]:
     """See https://doc.rust-lang.org/cargo/reference/registries.html#index-format
 
     - Packages with 1 character names are placed in a directory named 1.
@@ -197,8 +197,8 @@ def read_package_metadata(name: str) -> list[PackageMetadataModel]:
         metadata_path = index_path / name[:2] / name[2:4] / name
 
     metadata = []
-    with metadata_path.open("rb") as f:
-        for line in f:
+    async with await metadata_path.open("rb") as f:
+        async for line in f:
             metadata.append(PackageMetadataModel(**json.loads(line)))
     return metadata
 

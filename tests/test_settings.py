@@ -1,5 +1,7 @@
 import os
 
+import anyio
+
 from cratere.settings import Settings
 
 
@@ -11,3 +13,4 @@ def test_alternate_hosts():
 
     assert settings.host == "foo.example.com"
     assert settings.alternate_hosts == ["foobar", "bar", "baz"]
+    assert settings.index == anyio.Path("crates.io-index-master")

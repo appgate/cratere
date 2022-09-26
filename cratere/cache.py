@@ -55,7 +55,7 @@ async def cleanup_cache(
     current_time = time.time()
     seconds_in_day = 3600 * 24
     max_seconds_unused = max_days_unused * seconds_in_day
-    async for crate_dir_path in anyio.Path(cache_dir).iterdir():
+    async for crate_dir_path in cache_dir.iterdir():
         crate_dir_last_access_time = await last_access_time(crate_dir_path)
         dir_time_unused = current_time - crate_dir_last_access_time
         if dir_time_unused <= max_seconds_unused:
