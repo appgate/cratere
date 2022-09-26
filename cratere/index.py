@@ -134,7 +134,9 @@ async def update_crates_index(
     for host in alternate_hosts:
         alternate_path = alternate_index_path(index_path, host)
         if await alternate_path.exists():
-            assert await alternate_path.is_symlink(), "alternate index path should be a symlink"
+            assert (
+                await alternate_path.is_symlink()
+            ), "alternate index path should be a symlink"
 
     # Use suffix based on current datetime with iso accuracy, e.g. 2022-08-19T13:40:33
     suffix = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()[:-13]
