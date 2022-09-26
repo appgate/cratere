@@ -6,6 +6,12 @@ Based on https://doc.rust-lang.org/cargo/reference/registries.html#index-format
 The caching proxy keeps an updated crates.io index via regular syncs and caches crates downloads.
 If a given version of crate has been downloaded previously and is still in cache it is served directly from the cache. Unused crate versions will be cleaned up according to the cleanup policy.
 
+> *Cratère*
+>
+> French for crater.
+>
+> a large bowl-shaped cavity in the ground or on a celestial object, typically used to store and serve crates.
+
 ## Configuration
 
 Cratere is configurable via environment variables to make it easy to deploy as a container using e.g. Kubernetes (k8s).
