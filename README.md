@@ -8,6 +8,9 @@ If a given version of crate has been downloaded previously and is still in cache
 
 ## Configuration
 
+Cratere is configurable via environment variables to make it easy to deploy as a container using e.g. Kubernetes (k8s).
+It can also by run directly locally using e.g. [hypercorn](https://pgjones.gitlab.io/hypercorn/).
+
 - `CRATERE_SCHEME`: http or https.
 - `CRATERE_HOST`: hostname that will be used in the cargo crates.io and cargo configuration.
 - `CRATERE_PORT`: port that will be used in the cargo crates.io and cargo configuration.
