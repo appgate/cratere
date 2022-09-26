@@ -26,7 +26,7 @@ app = FastAPI()
 
 
 async def run() -> None:
-    index_path = anyio.Path(settings().index)
+    index_path = settings().index
 
     # Update crates index if it doesn't exist, then update it on a schedule.
     await update_crates_index(
@@ -35,7 +35,7 @@ async def run() -> None:
 
     # Write crates config in case it has change since last start
     await write_crates_configs(
-        anyio.Path(settings().index),
+        index_path,
         settings().host,
         settings().port,
         settings().alternate_hosts,
@@ -101,7 +101,7 @@ async def startup() -> None:
 
 
 async def _resolve_index_path(host: str | None) -> anyio.Path:
-    index_path = anyio.Path(settings().index)
+    index_path = settings().index
     if host and host in settings().alternate_hosts:
         index_path = alternate_index_path(index_path, host)
         log.info("Using alternate index path %s", index_path)
@@ -152,7 +152,7 @@ async def get_crate(name: str, version: str, request: Request):
     """Serve crate download."""
     _ = await request.body()
 
-    storage = anyio.Path(settings().cache)
+    storage = settings().cache
     await storage.mkdir(exist_ok=True)
 
     cached_file_path = storage / name / version

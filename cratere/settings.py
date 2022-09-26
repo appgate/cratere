@@ -2,7 +2,7 @@ import anyio
 import functools
 from typing import Literal
 
-from pydantic import BaseSettings, Field
+from pydantic import BaseSettings, Field, validator
 
 __all__ = [
     "Settings",
@@ -29,6 +29,14 @@ class Settings(BaseSettings):
 
     class Config:
         env_prefix = "cratere_"
+        json_encoders = {anyio.Path: str}
+
+    @validator("index", "cache", pre=True)
+    def anyio_path_validate(cls, v):
+        """
+        pydantic is not great for custom type handlers...
+        """
+        return anyio.Path(v)
 
 
 @functools.cache
