@@ -1,3 +1,4 @@
+import functools
 import pathlib
 from typing import Literal, Any
 
@@ -30,4 +31,9 @@ class Settings(BaseSettings):
         env_prefix = "cratere_"
 
 
-settings = Settings()
+@functools.cache
+def settings() -> Settings:
+    """
+    Use simple caching function to make sure settings are not created on import.
+    """
+    return Settings()

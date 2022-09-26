@@ -7,7 +7,6 @@ from typing import Callable, Awaitable
 import anyio
 
 from cratere.logger import log
-from cratere.settings import settings
 
 __all__ = [
     "cleanup_cache",

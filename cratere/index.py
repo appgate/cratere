@@ -125,7 +125,7 @@ async def copy_crates_index(source: anyio.Path, destination: anyio.Path) -> None
 
 
 async def update_crates_index(
-    index_path: anyio.Path, alternate_hosts: list[str]
+    index_path: anyio.Path, host: str, port: int | None, alternate_hosts: list[str]
 ) -> None:
     # Resolve symlink to current index
     if await index_path.exists():
@@ -157,13 +157,13 @@ async def update_crates_index(
         await download_crates_index(new_index)
 
         # And copy to alternate indexes if necessary
-        for host in alternate_hosts:
-            new_alternate_index = alternate_index_path(new_index, host)
+        for alternate_host in alternate_hosts:
+            new_alternate_index = alternate_index_path(new_index, alternate_host)
             if not await new_alternate_index.exists():
                 await copy_crates_index(new_index, new_alternate_index)
 
     # Write crates configuration for each index
-    await write_crates_configs(new_index, alternate_hosts)
+    await write_crates_configs(new_index, host, port, alternate_hosts)
 
     # And finally make the new index the current index
     await _make_current_index_path(index_path, new_index)
@@ -190,7 +190,7 @@ def read_package_metadata(name: str) -> list[PackageMetadataModel]:
     - All other packages are stored in directories named {first-two}/{second-two} where the top directory is the first two characters of the package name, and the next subdirectory is the third and fourth characters of the package name. For example, cargo would be stored in a file named ca/rg/cargo.
     """
     assert len(name) > 0
-    index_path = settings.index
+    index_path = settings().index
     if len(name) <= 3:
         metadata_path = index_path / str(len(name)) / name
     else:
@@ -205,8 +205,8 @@ def read_package_metadata(name: str) -> list[PackageMetadataModel]:
 
 async def write_crates_config(
     index_path: anyio.Path,
-    host: str = settings.host,
-    port: int | None = settings.port,
+    host: str,
+    port: int | None = None,
 ) -> None:
     """Override the default crates.io config to point to this proxy instead"""
 
@@ -216,8 +216,8 @@ async def write_crates_config(
         authority = host
 
     crates_config_model = CratesConfigModel(
-        dl=f"{settings.scheme}://{authority}/api/v1/crates",
-        api=f"{settings.scheme}://{authority}",
+        dl=f"{settings().scheme}://{authority}/api/v1/crates",
+        api=f"{settings().scheme}://{authority}",
     )
     if crates_config_model == await read_crates_config(index_path):
         return
@@ -249,9 +249,9 @@ async def write_crates_config(
 
 
 async def write_crates_configs(
-    index_path: anyio.Path, alternate_hosts: list[str] = settings.alternate_hosts
+    index_path: anyio.Path, host: str, port: int | None, alternate_hosts: list[str]
 ) -> None:
-    await write_crates_config(index_path)
+    await write_crates_config(index_path, host, port)
     for host in alternate_hosts:
         new_alternate_index = alternate_index_path(index_path, host)
         await write_crates_config(new_alternate_index, host)

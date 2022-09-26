@@ -26,17 +26,24 @@ app = FastAPI()
 
 
 async def run() -> None:
-    index_path = anyio.Path(settings.index)
+    index_path = anyio.Path(settings().index)
 
     # Update crates index if it doesn't exist, then update it on a schedule.
-    await update_crates_index(index_path, settings.alternate_hosts)
+    await update_crates_index(
+        index_path, settings().host, settings().port, settings().alternate_hosts
+    )
 
     # Write crates config in case it has change since last start
-    await write_crates_configs(anyio.Path(settings.index))
+    await write_crates_configs(
+        anyio.Path(settings().index),
+        settings().host,
+        settings().port,
+        settings().alternate_hosts,
+    )
 
     crates_config = await read_crates_config(index_path)
     log.info("Started with crates config %s", crates_config)
-    for host in settings.alternate_hosts:
+    for host in settings().alternate_hosts:
         alternate_crates_config = await read_crates_config(
             alternate_index_path(index_path, host)
         )
@@ -46,27 +53,27 @@ async def run() -> None:
 
     log.info(
         "Will update crates index on the following cron schedule: %s",
-        settings.index_update_schedule,
+        settings().index_update_schedule,
     )
     update_crates_index_job = acron.Job(
         name="Update crates index",
-        schedule=settings.index_update_schedule,
+        schedule=settings().index_update_schedule,
         func=functools.partial(
-            update_crates_index, alternate_hosts=settings.alternate_hosts
+            update_crates_index, alternate_hosts=settings().alternate_hosts
         ),
         data=index_path,
     )
     log.info(
         "Will cleanup crates cache on the following cron schedule: %s",
-        settings.cleanup_cache_schedule,
+        settings().cleanup_cache_schedule,
     )
     cleanup_cache_job = acron.Job(
         name="Cleanup crates cache",
-        schedule=settings.cleanup_cache_schedule,
+        schedule=settings().cleanup_cache_schedule,
         func=cleanup_cache,
         data=CleanupCacheData(
             cache_dir=index_path,
-            max_days_unused=settings.max_days_unused,
+            max_days_unused=settings().max_days_unused,
         ),
     )
     jobs: set[acron.Job] = {update_crates_index_job, cleanup_cache_job}
@@ -94,8 +101,8 @@ async def startup() -> None:
 
 
 async def _resolve_index_path(host: str | None) -> anyio.Path:
-    index_path = anyio.Path(settings.index)
-    if host and host in settings.alternate_hosts:
+    index_path = anyio.Path(settings().index)
+    if host and host in settings().alternate_hosts:
         index_path = alternate_index_path(index_path, host)
         log.info("Using alternate index path %s", index_path)
     return await index_path.resolve()
@@ -145,7 +152,7 @@ async def get_crate(name: str, version: str, request: Request):
     """Serve crate download."""
     _ = await request.body()
 
-    storage = anyio.Path(settings.cache)
+    storage = anyio.Path(settings().cache)
     await storage.mkdir(exist_ok=True)
 
     cached_file_path = storage / name / version
