@@ -9,6 +9,12 @@ Based on https://doc.rust-lang.org/cargo/reference/registries.html#index-format
 poetry run hypercorn cratere:app --bind 0.0.0.0 --reload --access-logfile -
 ```
 
+### Run all checks
+
+```bash
+poetry run check
+```
+
 ### Type checking
 
 ```bash
@@ -24,7 +30,7 @@ poetry run pytest tests
 ### Code formatting
 
 ```bash
-poetry run black cratere
+poetry run fmt
 ```
 
 
