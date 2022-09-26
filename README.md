@@ -3,6 +3,22 @@
 Caching proxy for crates.io.
 Based on https://doc.rust-lang.org/cargo/reference/registries.html#index-format
 
+The caching proxy keeps an updated crates.io index via regular syncs and caches crates downloads.
+If a given version of crate has been downloaded previously and is still in cache it is served directly from the cache. Unused crate versions will be cleaned up according to the cleanup policy.
+
+### Configuration
+
+- `CRATERE_SCHEME`: http or https.
+- `CRATERE_HOST`: hostname that will be used in the cargo crates.io and cargo configuration.
+- `CRATERE_PORT`: port that will be used in the cargo crates.io and cargo configuration.
+- `CRATERE_CACHE`: cache directory where the actual crates will be stored following the cargo registries standard storage paths.
+- `CRATERE_INDEX`: crates.io git index repositories storage directory. Such a repository is about 1.2GB in size. At most 2 copies are kept at all times for each configured host.
+- `CRATERE_INDEX_UPDATE_SCHEDULE`: cron schedule for updating the crates.io index. The index is synced from https://github.com/rust-lang/crates.io-index.git.
+- `CRATERE_CLEANUP_CACHE_SCHEDULE`: cron schedule for cleaning cached crates. See `CRATERE_MAY_DAYS_UNUSED` for cleanup policy.
+- `CRATERE_MAX_DAYS_UNUSED`: Crates that have not been used for more than `CRATERE_MAX_DAYS_UNUSED` will be deleted. This relies on atime or relatim being enabled on the filesystem used to store the `CRATERE_CACHE`.
+- `CRATERE_ALTERNATE_HOSTS`: List of alternate hosts in json format as follows: `["<host1>[:<port1>", "<host2>[:<port2>]", ...]`. Each alternate host gets its own copies of the crates.io index. The crates cache itself is shared between all the hosts.
+
+
 ### Running locally
 
 ```bash
