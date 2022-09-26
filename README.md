@@ -15,6 +15,12 @@ poetry run hypercorn cratere:app --bind 0.0.0.0 --reload --access-logfile -
 poetry run mypy cratere
 ```
 
+### Unit tests
+
+```bash
+poetry run pytest tests
+```
+
 ### Code formatting
 
 ```bash
