@@ -77,3 +77,8 @@ Expose the required port and mount storage volume:
 ```
 docker run -p 0.0.0.0:8000:8000 cratere
 ```
+
+
+### Kubernetes
+
+A cratere proxy can easily be hosted on k8s using the dokcer image, a persistent volume to store the index and crates cache as well as a service to expose the port.
