@@ -1,7 +1,8 @@
-import pathlib
+import anyio
+import functools
 from typing import Literal
 
-from pydantic import BaseSettings
+from pydantic import BaseSettings, Field, validator
 
 __all__ = [
     "Settings",
@@ -10,11 +11,12 @@ __all__ = [
 
 
 class Settings(BaseSettings):
+    host: str
     scheme: Literal["http", "https"] = "http"
-    host: str = "172.17.0.1"
-    port: int = 8000
-    index: pathlib.Path = pathlib.Path("crates.io-index-master")
-    cache: pathlib.Path = pathlib.Path("storage")
+    port: int | None = None
+    alternate_hosts: list[str] = Field(default_factory=list)
+    index: anyio.Path = anyio.Path("crates.io-index-master")
+    cache: anyio.Path = anyio.Path("storage")
     # Schedule for crates index update https://crontab.guru/#0_4_*_*_*
     # Default: At 04:00.
     index_update_schedule: str = "0 4 * * *"
@@ -27,6 +29,19 @@ class Settings(BaseSettings):
 
     class Config:
         env_prefix = "cratere_"
+        json_encoders = {anyio.Path: str}
+
+    @validator("index", "cache", pre=True)
+    def anyio_path_validate(cls, v):
+        """
+        pydantic is not great for custom type handlers...
+        """
+        return anyio.Path(v)
 
 
-settings = Settings()
+@functools.cache
+def settings() -> Settings:
+    """
+    Use simple caching function to make sure settings are not created on import.
+    """
+    return Settings()

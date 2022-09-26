@@ -1,6 +1,7 @@
 import datetime
 import json
 import shutil
+import time
 
 import anyio
 from pydantic import BaseModel, Field
@@ -12,8 +13,10 @@ __all__ = [
     "download_crates_index",
     "update_crates_index",
     "read_crates_config",
-    "write_creates_config",
+    "write_crates_config",
+    "write_crates_configs",
     "read_package_metadata",
+    "alternate_index_path",
 ]
 
 
@@ -65,21 +68,22 @@ async def download_crates_index(index_path: anyio.Path) -> None:
     log.info("Downloaded crates.io index to %s", index_path)
 
 
-async def update_crates_index(index_path: anyio.Path) -> None:
-    # Resolve symlink to current index
-    if await index_path.exists():
-        assert await index_path.is_symlink(), "index path should be a symlink"
+def alternate_index_path(index_path: anyio.Path, host: str) -> anyio.Path:
+    return index_path.with_name(f"{host}-{index_path.name}")
 
-    # Use suffix based on current datetime with iso accuracy, e.g. 2022-08-19T13:40:33
-    suffix = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()[:-13]
-    new_index = index_path.parent / f"{index_path.name}.{suffix}"
 
-    # Download new index
-    await download_crates_index(new_index)
-    await write_crates_config(anyio.Path(new_index))
-
+async def _make_current_index_path(
+    index_path: anyio.Path,
+    new_index: anyio.Path,
+) -> None:
     # Save previous index path for later
     previous_index = await index_path.resolve()
+
+    if previous_index == new_index:
+        # Index already points to given index
+        return
+
+    log.info("Updating index %s to point to %s", index_path, new_index)
 
     # Atomically replace symlink to point to new index
     new_index_link = new_index.parent / f"{new_index}.name.lnk"
@@ -91,7 +95,7 @@ async def update_crates_index(index_path: anyio.Path) -> None:
 
     # Get rid of older index directories,
     # don't delete the one we just replaced as it can still be in use.
-    async for possible_index_path in anyio.Path(index_path.parent).iterdir():
+    async for possible_index_path in index_path.parent.iterdir():
         if not possible_index_path.name.startswith(index_path.name):
             # Don't touch unrelated files
             continue
@@ -108,6 +112,67 @@ async def update_crates_index(index_path: anyio.Path) -> None:
         await anyio.to_thread.run_sync(shutil.rmtree, possible_index_path)
 
 
+async def copy_crates_index(source: anyio.Path, destination: anyio.Path) -> None:
+    log.info(
+        "Copying index %s to alternate host index %s",
+        source,
+        destination,
+    )
+    await anyio.run_process(
+        ["cp", "-rp", str(source), str(destination)],
+        check=True,
+    )
+
+
+async def update_crates_index(
+    index_path: anyio.Path, host: str, port: int | None, alternate_hosts: list[str]
+) -> None:
+    # Resolve symlink to current index
+    if await index_path.exists():
+        assert await index_path.is_symlink(), "index path should be a symlink"
+
+    for host in alternate_hosts:
+        alternate_path = alternate_index_path(index_path, host)
+        if await alternate_path.exists():
+            assert (
+                await alternate_path.is_symlink()
+            ), "alternate index path should be a symlink"
+
+    # Use suffix based on current datetime with iso accuracy, e.g. 2022-08-19T13:40:33
+    suffix = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()[:-13]
+    new_index = index_path.parent / f"{index_path.name}.{suffix}"
+
+    try:
+        previous_index = await index_path.resolve()
+        stat = await previous_index.lstat()
+        if (time.time() - stat.st_ctime) < (3600.0 * 6.0):
+            # Existing index is less than 6 hours old, keep it
+            new_index = previous_index
+            log.info("Existing index is recent enough, keeping %s", new_index)
+    except FileNotFoundError:
+        pass
+
+    # Download new index
+    if not await new_index.exists():
+        await download_crates_index(new_index)
+
+        # And copy to alternate indexes if necessary
+        for alternate_host in alternate_hosts:
+            new_alternate_index = alternate_index_path(new_index, alternate_host)
+            if not await new_alternate_index.exists():
+                await copy_crates_index(new_index, new_alternate_index)
+
+    # Write crates configuration for each index
+    await write_crates_configs(new_index, host, port, alternate_hosts)
+
+    # And finally make the new index the current index
+    await _make_current_index_path(index_path, new_index)
+    for host in alternate_hosts:
+        alternate_index = alternate_index_path(index_path, host)
+        new_alternate_index = alternate_index_path(new_index, host)
+        await _make_current_index_path(alternate_index, new_alternate_index)
+
+
 async def read_crates_config(index_path: anyio.Path) -> CratesConfigModel:
     """See https://doc.rust-lang.org/cargo/reference/registries.html#index-format"""
     config_path = index_path / "config.json"
@@ -116,7 +181,7 @@ async def read_crates_config(index_path: anyio.Path) -> CratesConfigModel:
     return config_model
 
 
-def read_package_metadata(name: str) -> list[PackageMetadataModel]:
+async def read_package_metadata(name: str) -> list[PackageMetadataModel]:
     """See https://doc.rust-lang.org/cargo/reference/registries.html#index-format
 
     - Packages with 1 character names are placed in a directory named 1.
@@ -125,24 +190,34 @@ def read_package_metadata(name: str) -> list[PackageMetadataModel]:
     - All other packages are stored in directories named {first-two}/{second-two} where the top directory is the first two characters of the package name, and the next subdirectory is the third and fourth characters of the package name. For example, cargo would be stored in a file named ca/rg/cargo.
     """
     assert len(name) > 0
-    index_path = settings.index
+    index_path = settings().index
     if len(name) <= 3:
         metadata_path = index_path / str(len(name)) / name
     else:
         metadata_path = index_path / name[:2] / name[2:4] / name
 
     metadata = []
-    with metadata_path.open("rb") as f:
-        for line in f:
+    async with await metadata_path.open("rb") as f:
+        async for line in f:
             metadata.append(PackageMetadataModel(**json.loads(line)))
     return metadata
 
 
-async def write_crates_config(index_path: anyio.Path) -> None:
+async def write_crates_config(
+    index_path: anyio.Path,
+    host: str,
+    port: int | None = None,
+) -> None:
     """Override the default crates.io config to point to this proxy instead"""
+
+    if port is not None and ":" not in host:
+        authority = f"{host}:{port}"
+    else:
+        authority = host
+
     crates_config_model = CratesConfigModel(
-        dl=f"{settings.scheme}://{settings.host}:{settings.port}/api/v1/crates",
-        api=f"{settings.scheme}://{settings.host}:{settings.port}",
+        dl=f"{settings().scheme}://{authority}/api/v1/crates",
+        api=f"{settings().scheme}://{authority}",
     )
     if crates_config_model == await read_crates_config(index_path):
         return
@@ -171,3 +246,12 @@ async def write_crates_config(index_path: anyio.Path) -> None:
             "GIT_COMMITTER_EMAIL": "cratere@noreply.appgate.com",
         },
     )
+
+
+async def write_crates_configs(
+    index_path: anyio.Path, host: str, port: int | None, alternate_hosts: list[str]
+) -> None:
+    await write_crates_config(index_path, host, port)
+    for host in alternate_hosts:
+        new_alternate_index = alternate_index_path(index_path, host)
+        await write_crates_config(new_alternate_index, host)

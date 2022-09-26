@@ -1,5 +1,7 @@
 import asyncio
+import functools
 import subprocess
+import sys
 
 import acron
 import anyio
@@ -10,7 +12,12 @@ import httpx
 
 from cratere.settings import settings
 from cratere.logger import log
-from cratere.index import update_crates_index, write_crates_config, read_crates_config
+from cratere.index import (
+    update_crates_index,
+    read_crates_config,
+    write_crates_configs,
+    alternate_index_path,
+)
 from cratere.cache import cleanup_cache, CleanupCacheData
 
 __all__ = ["main"]
@@ -18,53 +25,95 @@ __all__ = ["main"]
 app = FastAPI()
 
 
-@app.on_event("startup")
 async def run() -> None:
-    index_path = anyio.Path(settings.index)
+    index_path = settings().index
 
-    if not await index_path.exists():
-        # Update crates index if it doesn't exist, then update it on a schedule.
-        await update_crates_index(index_path)
+    # Update crates index if it doesn't exist, then update it on a schedule.
+    await update_crates_index(
+        index_path, settings().host, settings().port, settings().alternate_hosts
+    )
 
     # Write crates config in case it has change since last start
-    await write_crates_config(anyio.Path(settings.index))
+    await write_crates_configs(
+        index_path,
+        settings().host,
+        settings().port,
+        settings().alternate_hosts,
+    )
 
     crates_config = await read_crates_config(index_path)
     log.info("Started with crates config %s", crates_config)
+    for host in settings().alternate_hosts:
+        alternate_crates_config = await read_crates_config(
+            alternate_index_path(index_path, host)
+        )
+        log.info(
+            "Started alternate host with creates config %s", alternate_crates_config
+        )
 
     log.info(
         "Will update crates index on the following cron schedule: %s",
-        settings.index_update_schedule,
+        settings().index_update_schedule,
     )
     update_crates_index_job = acron.Job(
         name="Update crates index",
-        schedule=settings.index_update_schedule,
-        func=update_crates_index,
+        schedule=settings().index_update_schedule,
+        func=functools.partial(
+            update_crates_index, alternate_hosts=settings().alternate_hosts
+        ),
         data=index_path,
     )
     log.info(
         "Will cleanup crates cache on the following cron schedule: %s",
-        settings.cleanup_cache_schedule,
+        settings().cleanup_cache_schedule,
     )
     cleanup_cache_job = acron.Job(
         name="Cleanup crates cache",
-        schedule=settings.cleanup_cache_schedule,
+        schedule=settings().cleanup_cache_schedule,
         func=cleanup_cache,
         data=CleanupCacheData(
             cache_dir=index_path,
-            max_days_unused=settings.max_days_unused,
+            max_days_unused=settings().max_days_unused,
         ),
     )
     jobs: set[acron.Job] = {update_crates_index_job, cleanup_cache_job}
     asyncio.create_task(acron.run(jobs))
+    log.info("Ready to go!")
+
+
+async def run_wrapper():
+    """
+    Run wrapper to log exception for background task.
+    """
+    try:
+        await run()
+    except Exception:
+        log.exception("Startup failed!")
+        sys.exit(1)
+
+
+@app.on_event("startup")
+async def startup() -> None:
+    """
+    Hack for now, ideally we should increase the hypercorn startup timeout.
+    """
+    asyncio.create_task(run_wrapper())
+
+
+async def _resolve_index_path(host: str | None) -> anyio.Path:
+    index_path = settings().index
+    if host and host in settings().alternate_hosts:
+        index_path = alternate_index_path(index_path, host)
+        log.info("Using alternate index path %s", index_path)
+    return await index_path.resolve()
 
 
 @app.get("/crates.io-index/info/refs")
-async def get_index_refs():
+async def get_index_refs(request: Request):
     """See https://git-scm.com/docs/http-protocol"""
+    index_path = await _resolve_index_path(request.headers.get("host"))
 
     async def stream_pack_local_index():
-        index_path = await anyio.Path(settings.index).resolve()
         cmd = ["git", "upload-pack", "--http-backend-info-refs", str(index_path)]
         completed_process = await anyio.run_process(cmd, check=True)
         # Header for git http protocol
@@ -82,9 +131,9 @@ async def get_index_refs():
 async def post_index_upload_pack(request: Request):
     """See https://git-scm.com/docs/http-protocol"""
     body = await request.body()
+    index_path = await _resolve_index_path(request.headers.get("host"))
 
     async def stream_pack_local_index():
-        index_path = await anyio.Path(settings.index).resolve()
         async with await anyio.open_process(
             ["git", "upload-pack", str(index_path)], stdin=subprocess.PIPE
         ) as process:
@@ -103,7 +152,7 @@ async def get_crate(name: str, version: str, request: Request):
     """Serve crate download."""
     _ = await request.body()
 
-    storage = anyio.Path(settings.cache)
+    storage = settings().cache
     await storage.mkdir(exist_ok=True)
 
     cached_file_path = storage / name / version
