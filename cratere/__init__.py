@@ -59,7 +59,10 @@ async def run() -> None:
         name="Update crates index",
         schedule=settings().index_update_schedule,
         func=functools.partial(
-            update_crates_index, alternate_hosts=settings().alternate_hosts
+            update_crates_index,
+            host=settings().port,
+            port=settings().port,
+            alternate_hosts=settings().alternate_hosts,
         ),
         data=index_path,
     )
