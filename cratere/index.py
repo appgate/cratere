@@ -167,9 +167,9 @@ async def update_crates_index(
 
     # And finally make the new index the current index
     await _make_current_index_path(index_path, new_index)
-    for host in alternate_hosts:
-        alternate_index = alternate_index_path(index_path, host)
-        new_alternate_index = alternate_index_path(new_index, host)
+    for alternate_host in alternate_hosts:
+        alternate_index = alternate_index_path(index_path, alternate_host)
+        new_alternate_index = alternate_index_path(new_index, alternate_host)
         await _make_current_index_path(alternate_index, new_alternate_index)
 
 
@@ -252,6 +252,6 @@ async def write_crates_configs(
     index_path: anyio.Path, host: str, port: int | None, alternate_hosts: list[str]
 ) -> None:
     await write_crates_config(index_path, host, port)
-    for host in alternate_hosts:
-        new_alternate_index = alternate_index_path(index_path, host)
-        await write_crates_config(new_alternate_index, host)
+    for alternate_host in alternate_hosts:
+        new_alternate_index = alternate_index_path(index_path, alternate_host)
+        await write_crates_config(new_alternate_index, alternate_host)
