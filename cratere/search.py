@@ -47,5 +47,10 @@ class CrateSearchMetadataModel(BaseModel):
 
 
 class CrateSearchModel(BaseModel):
+    """
+    API result of cargo search.
+
+    See https://doc.rust-lang.org/cargo/commands/cargo-search.html
+    """
     crates: List[CrateShowModel]
     meta: CrateSearchMetadataModel
