@@ -9,6 +9,7 @@ from anyio.streams.buffered import BufferedByteReceiveStream
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, FileResponse
 import httpx
+from starlette.responses import JSONResponse
 
 from cratere.settings import settings
 from cratere.logger import log
@@ -150,8 +151,21 @@ async def post_index_upload_pack(request: Request):
     )
 
 
+@app.get("/api/v1/crates/{name}")
+async def get_crate(name: str, request: Request):
+    """
+    Used by cargo search.
+    """
+    log.info("Getting crate info for %s", name)
+    async with httpx.AsyncClient() as client:
+        r = await client.get(f"https://crates.io{request.url.path}")
+        content = r.json()
+        log.info("Got response: %s", content)
+    return JSONResponse(content=content)
+
+
 @app.get("/api/v1/crates/{name}/{version}/download")
-async def get_crate(name: str, version: str, request: Request):
+async def download_crate(name: str, version: str, request: Request):
     """Serve crate download."""
     _ = await request.body()
 
