@@ -9,7 +9,10 @@ from anyio.streams.buffered import BufferedByteReceiveStream
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, FileResponse
 import httpx
+from httpx import URL
+from starlette.responses import JSONResponse
 
+from cratere.search import CrateSearchModel
 from cratere.settings import settings
 from cratere.logger import log
 from cratere.index import (
@@ -150,8 +153,29 @@ async def post_index_upload_pack(request: Request):
     )
 
 
+@app.get("/api/v1/crates")
+async def get_crates(request: Request) -> CrateSearchModel:
+    """
+    Used by cargo search.
+
+    TODO: Generate metadata from local index instead of proxying directly to crates.io.
+    """
+    log.info(
+        "Getting crates info: %s",
+        request.query_params,
+    )
+    async with httpx.AsyncClient() as client:
+        url = f"https://crates.io{request.url.path}"
+        if request.query_params:
+            url += f"?{request.query_params}"
+        r = await client.get(url)
+    crate_search_model = CrateSearchModel(**r.json())
+    log.info("Got response: %s", crate_search_model)
+    return crate_search_model
+
+
 @app.get("/api/v1/crates/{name}/{version}/download")
-async def get_crate(name: str, version: str, request: Request):
+async def download_crate(name: str, version: str, request: Request):
     """Serve crate download."""
     _ = await request.body()
 
