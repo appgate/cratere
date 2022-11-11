@@ -9,8 +9,6 @@ from anyio.streams.buffered import BufferedByteReceiveStream
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, FileResponse
 import httpx
-from httpx import URL
-from starlette.responses import JSONResponse
 
 from cratere.search import CrateSearchModel
 from cratere.settings import settings
