@@ -160,20 +160,17 @@ async def get_crates(request: Request) -> CrateSearchModel:
 
     TODO: Generate metadata from local index instead of proxying directly to crates.io.
     """
-    body = await request.body()
     log.info(
-        "Getting crates info: %s -- %s -- %s",
-        request.path_params,
+        "Getting crates info: %s",
         request.query_params,
-        body,
     )
     async with httpx.AsyncClient() as client:
         url = f"https://crates.io{request.url.path}"
         if request.query_params:
             url += f"?{request.query_params}"
-        r = await client.request("GET", url)
-        crate_search_model = CrateSearchModel(**r.json())
-        log.info("Got response: %s", crate_search_model)
+        r = await client.get(url)
+    crate_search_model = CrateSearchModel(**r.json())
+    log.info("Got response: %s", crate_search_model)
     return crate_search_model
 
 
