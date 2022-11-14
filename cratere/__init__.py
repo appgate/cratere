@@ -121,6 +121,7 @@ async def get_index_refs(request: Request):
         cmd = ["git", "upload-pack", "--http-backend-info-refs", str(index_path)]
         completed_process = await anyio.run_process(cmd, check=True)
         # Header for git http protocol
+        # See https://git-scm.com/docs/protocol-v2
         yield b"001e# service=git-upload-pack\n0000"
         # Content coming from upload-pack
         yield completed_process.stdout
