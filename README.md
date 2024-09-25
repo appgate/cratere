@@ -48,28 +48,28 @@ Cratere uses [acron](https://github.com/appgate/acron) to run the following sche
 uv run hypercorn cratere:app --bind 0.0.0.0 --reload --access-logfile -
 ```
 
-### Run all checks
+### Linting
 
 ```bash
-uv tool run ruff check src/cratere
+uv run ruff check src/cratere
 ```
 
 ### Type checking
 
 ```bash
-uv tool run mypy check src/cratere
+uv run mypy check src/cratere
 ```
 
 ### Unit tests
 
 ```bash
-PYTHONPATH=src uv tool run pytest src/tests
+PYTHONPATH=src uv run pytest src/tests
 ```
 
 ### Code formatting
 
 ```bash
-uv tool run ruff format src
+uv run ruff format src
 ```
 
 
