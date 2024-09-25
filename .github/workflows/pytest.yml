@@ -2,19 +2,17 @@ name: pytest
 on: [push]
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Set up Python
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v5
       with:
         python-version: '3.10'
     - name: Install pipx 
       run: pip install pipx
-    - name: Install poetry 
-      run: pipx install poetry 
-    - name: Install dev dependencies
-      run: poetry install
+    - name: Install uv
+      run: pipx install uv
     - name: Run pytest 
-      run: poetry run pytest -v tests
+      run: uv run pytest -v tests
 
