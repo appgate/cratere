@@ -1,20 +1,20 @@
-name: mypy
+name: lint
 on: [push]
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Set up Python
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v4
       with:
-        python-version: '3.10'
+        python-version: '3.12'
     - name: Install pipx 
       run: pip install pipx
-    - name: Install poetry 
-      run: pipx install poetry 
-    - name: Install dev dependencies
-      run: poetry install
+    - name: Install uv
+      run: pipx install uv
+    - name: Run ruff
+      run: uv run ruff src/cratere
     - name: Run mypy
-      run: poetry run mypy cratere 
+      run: uv run mypy src/cratere
 
