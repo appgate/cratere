@@ -4,3 +4,5 @@ __pycache__/
 storage/
 requirements.txt
 .idea/
+dist/
+src/cratere.egg-info/

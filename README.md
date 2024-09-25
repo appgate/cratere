@@ -45,31 +45,31 @@ Cratere uses [acron](https://github.com/appgate/acron) to run the following sche
 ### Running locally
 
 ```bash
-poetry run hypercorn cratere:app --bind 0.0.0.0 --reload --access-logfile -
+uv run hypercorn cratere:app --bind 0.0.0.0 --reload --access-logfile -
 ```
 
-### Run all checks
+### Linting
 
 ```bash
-poetry run check
+uv run ruff check src
 ```
 
 ### Type checking
 
 ```bash
-poetry run mypy cratere
+uv run mypy check src/cratere
 ```
 
 ### Unit tests
 
 ```bash
-poetry run pytest tests
+PYTHONPATH=src uv run pytest -v src/tests
 ```
 
 ### Code formatting
 
 ```bash
-poetry run fmt
+uv run ruff format src
 ```
 
 
