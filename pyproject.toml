@@ -23,6 +23,7 @@ text = "MIT"
 [tool.uv]
 dev-dependencies = [
     "mypy>=1.11.2",
+    "pytest-asyncio>=0.24.0",
     "pytest>=8.3.3",
     "ruff>=0.6.7",
 ]

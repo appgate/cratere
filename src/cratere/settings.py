@@ -1,7 +1,7 @@
 import anyio
 import functools
-from typing import Literal
-from pydantic import Field, validator
+from typing import Literal, Annotated
+from pydantic import Field, PlainSerializer, PlainValidator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 __all__ = [
@@ -10,13 +10,19 @@ __all__ = [
 ]
 
 
+FromPath = PlainValidator(lambda x: anyio.Path(x))
+ToPath = PlainSerializer(str)
+
+
 class Settings(BaseSettings):
     host: str
     scheme: Literal["http", "https"] = "http"
     port: int | None = None
     alternate_hosts: list[str] = Field(default_factory=list)
-    index: anyio.Path = anyio.Path("crates.io-index-master")
-    cache: anyio.Path = anyio.Path("storage")
+    index: Annotated[anyio.Path, FromPath, ToPath] = anyio.Path(
+        "crates.io-index-master"
+    )
+    cache: Annotated[anyio.Path, FromPath, ToPath] = anyio.Path("storage")
     # Schedule for crates index update https://crontab.guru/#0_4_*_*_*
     # Default: At 04:00.
     index_update_schedule: str = "0 4 * * *"
@@ -30,16 +36,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="cratere_",
         env_nested_delimiter="__",
-        json_encoders={anyio.Path: str},
     )
-
-    # TODO: Pydantic v2 validator
-    @validator("index", "cache", pre=True)
-    def anyio_path_validate(cls, v):
-        """
-        pydantic is not great for custom type handlers...
-        """
-        return anyio.Path(v)
 
 
 @functools.cache

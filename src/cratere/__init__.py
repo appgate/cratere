@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager
 import functools
 import subprocess
 import sys
@@ -96,12 +97,14 @@ async def run_wrapper():
         sys.exit(1)
 
 
-@app.on_event("startup")
-async def startup() -> None:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     """
     Hack for now, ideally we should increase the hypercorn startup timeout.
     """
-    asyncio.create_task(run_wrapper())
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(run_wrapper())
+        yield
 
 
 async def _resolve_index_path(host: str | None) -> anyio.Path:

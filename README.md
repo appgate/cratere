@@ -51,7 +51,7 @@ uv run hypercorn cratere:app --bind 0.0.0.0 --reload --access-logfile -
 ### Linting
 
 ```bash
-uv run ruff check src/cratere
+uv run ruff check src
 ```
 
 ### Type checking
@@ -63,7 +63,7 @@ uv run mypy check src/cratere
 ### Unit tests
 
 ```bash
-PYTHONPATH=src uv run pytest src/tests
+PYTHONPATH=src uv run pytest -v src/tests
 ```
 
 ### Code formatting
