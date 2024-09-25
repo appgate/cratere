@@ -1,8 +1,8 @@
 import anyio
 import functools
 from typing import Literal
-
-from pydantic import BaseSettings, Field, validator
+from pydantic import Field, validator
+from pydantic_settings import BaseSettings
 
 __all__ = [
     "Settings",
