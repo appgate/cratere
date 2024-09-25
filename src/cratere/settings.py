@@ -2,7 +2,7 @@ import anyio
 import functools
 from typing import Literal
 from pydantic import Field, validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 __all__ = [
     "Settings",
@@ -27,10 +27,13 @@ class Settings(BaseSettings):
     # Default: about half a year
     max_days_unused: int = 30 * 6
 
-    class Config:
-        env_prefix = "cratere_"
-        json_encoders = {anyio.Path: str}
+    model_config = SettingsConfigDict(
+        env_prefix="cratere_",
+        env_nested_delimiter="__",
+        json_encoders={anyio.Path: str},
+    )
 
+    # TODO: Pydantic v2 validator
     @validator("index", "cache", pre=True)
     def anyio_path_validate(cls, v):
         """

@@ -9,7 +9,6 @@ from cratere.cache import CleanupCacheData, cleanup_cache
 
 @pytest.mark.asyncio
 async def test_cleanup_cache(tmp_path: Path) -> None:
-
     (tmp_path / "bar").mkdir()
     (tmp_path / "buzz").mkdir()
     (tmp_path / "foo-1").mkdir()
